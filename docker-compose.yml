@@ -1,0 +1,242 @@
+# ==========================================
+# TOM SPARK'S PRIVACY BOX
+# Created by Tom Spark | youtube.com/@TomSparkReviews
+#
+# VPN Options:
+#   NordVPN:   nordvpn.tomspark.tech   (4 extra months FREE!)
+#   ProtonVPN: protonvpn.tomspark.tech (3 months FREE!)
+#   Surfshark: surfshark.tomspark.tech (3 extra months FREE!)
+# ==========================================
+
+networks:
+  internal:
+    # Internal network for FlareSolverr to communicate with VPN-tunneled containers
+    driver: bridge
+
+services:
+  gluetun:
+    image: qmcgaw/gluetun
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - 8080:8080   # qBittorrent
+      - 8181:9696   # Prowlarr (Safe Port - avoids Windows conflicts)
+      - 8989:8989   # Sonarr
+      - 7878:7878   # Radarr
+      - 8686:8686   # Lidarr
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_PROVIDER}
+      - VPN_TYPE=${VPN_TYPE:-openvpn}
+      # OpenVPN credentials (used when VPN_TYPE=openvpn)
+      - OPENVPN_USER=${VPN_USER:-}
+      - OPENVPN_PASSWORD=${VPN_PASSWORD:-}
+      # WireGuard credentials (used when VPN_TYPE=wireguard)
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES}
+      - FREE_ONLY=${FREE_ONLY:-off}
+      - FIREWALL_OUTBOUND_SUBNETS=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12
+    volumes:
+      - ./config/gluetun:/gluetun
+    networks:
+      - default
+      - internal
+    healthcheck:
+      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+    volumes:
+      - ./config/qbittorrent:/config
+      - ./media/downloads:/data/downloads
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - ./config/prowlarr:/config
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9696/ping", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - ./config/sonarr:/config
+      - ./media:/data/media
+      - ./media/downloads:/data/downloads
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8989/ping", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - ./config/radarr:/config
+      - ./media:/data/media
+      - ./media/downloads:/data/downloads
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7878/ping", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # --- Media Server (accessible on local network) ---
+  jellyfin:
+    image: lscr.io/linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    ports:
+      - 8096:8096   # Jellyfin Web UI
+    volumes:
+      - ./config/jellyfin:/config
+      - ./media/tv:/data/tvshows
+      - ./media/movies:/data/movies
+      - ./media/music:/data/music
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # --- SABnzbd (Optional - enable with: docker compose --profile sabnzbd up -d) ---
+  # NOTE: SABnzbd is NOT routed through VPN. Usenet traffic is already SSL-encrypted,
+  # and routing through VPN would conflict with qBittorrent's port inside gluetun.
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    profiles:
+      - sabnzbd
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    ports:
+      - 8085:8080   # SABnzbd Web UI
+    volumes:
+      - ./config/sabnzbd:/config
+      - ./media/downloads:/data/downloads
+    restart: unless-stopped
+
+  # --- Lidarr (Optional - enable with: docker compose --profile lidarr up -d) ---
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:latest
+    container_name: lidarr
+    profiles:
+      - lidarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+    volumes:
+      - ./config/lidarr:/config
+      - ./media:/data/media
+      - ./media/downloads:/data/downloads
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8686/ping", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  # --- Notifications (Optional - enable with: docker compose --profile notifications up -d) ---
+  notifiarr:
+    image: golift/notifiarr
+    container_name: notifiarr
+    hostname: notifiarr
+    profiles:
+      - notifications
+    environment:
+      - DN_API_KEY=${NOTIFIARR_API_KEY}
+      - TZ=${TZ}
+    ports:
+      - 5454:5454   # Notifiarr Web UI
+    volumes:
+      - ./config/notifiarr:/config
+      - /var/run/utmp:/var/run/utmp:ro
+    restart: unless-stopped
+
+  # --- FlareSolverr (Optional - enable with: docker compose --profile flaresolverr up -d) ---
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    profiles:
+      - flaresolverr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=${TZ}
+    # No host ports needed — Prowlarr reaches FlareSolverr via the internal network
+    networks:
+      - internal
+    restart: unless-stopped
