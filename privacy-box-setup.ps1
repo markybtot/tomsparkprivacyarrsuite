@@ -5,11 +5,7 @@
 # LICENSE: MIT with Attribution - You MUST credit Tom Spark
 #          if you share, modify, or create content based on this.
 #
-# VPN Options:
-#   NordVPN:   nordvpn.tomspark.tech   (4 extra months FREE!)
-#   ProtonVPN: protonvpn.tomspark.tech (3 months FREE!)
-#   Surfshark: surfshark.tomspark.tech (3 extra months FREE!)
-# GitHub: https://github.com/loponai/tomsparkprivacyarrsuite
+# Original: https://github.com/loponai/tomsparkprivacyarrsuite (No-VPN edition)
 # ============================================================
 
 param(
@@ -38,8 +34,6 @@ function Write-Banner {
     Write-Host "TOM SPARK" -ForegroundColor Yellow -NoNewline
     Write-Host " | v$script:Version" -ForegroundColor DarkGray
     Write-Host "      YouTube: youtube.com/@TomSparkReviews" -ForegroundColor DarkGray
-    Write-Host "      VPN Deals: " -ForegroundColor DarkGray -NoNewline
-    Write-Host "nordvpn.tomspark.tech | protonvpn.tomspark.tech | surfshark.tomspark.tech" -ForegroundColor Cyan
     Write-Host "  =====================================================" -ForegroundColor Cyan
     Write-Host "   (c) 2026 Tom Spark. Licensed under MIT+Attribution." -ForegroundColor DarkGray
     Write-Host "   Unauthorized copying without credit = DMCA takedown." -ForegroundColor DarkRed
@@ -166,8 +160,8 @@ function Show-ArrOverview {
     Write-Host "  | " -ForegroundColor Cyan -NoNewline
     Write-Host "qBittorrent" -ForegroundColor Green -NoNewline
     Write-Host "   | " -ForegroundColor Cyan -NoNewline
-    Write-Host "Downloads files (through VPN for safety)" -ForegroundColor Gray -NoNewline
-    Write-Host "  |" -ForegroundColor Cyan
+    Write-Host "Downloads torrent files" -ForegroundColor Gray -NoNewline
+    Write-Host "                   |" -ForegroundColor Cyan
     Write-Host "  | " -ForegroundColor Cyan -NoNewline
     Write-Host "Prowlarr" -ForegroundColor Green -NoNewline
     Write-Host "      | " -ForegroundColor Cyan -NoNewline
@@ -220,8 +214,6 @@ function Show-ArrOverview {
     Write-Host " organizes it -> " -ForegroundColor Gray -NoNewline
     Write-Host "Jellyfin" -ForegroundColor Green -NoNewline
     Write-Host " streams it to your devices" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  All torrent traffic is routed through your VPN for privacy." -ForegroundColor Yellow
 
     Press-Enter
 }
@@ -264,362 +256,9 @@ function Test-DockerRunning {
     }
 }
 
-# --- VPN Provider Selection ---
-function Get-OtherVPNProvider {
-    Write-Banner
-    Write-Host "  OTHER VPN PROVIDERS" -ForegroundColor Magenta
-    Write-Host "  -------------------" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "  Select your VPN provider:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "     1. Mullvad" -ForegroundColor White
-    Write-Host "     2. Private Internet Access (PIA)" -ForegroundColor White
-    Write-Host "     3. Windscribe" -ForegroundColor White
-    Write-Host "     4. CyberGhost" -ForegroundColor White
-    Write-Host "     5. IPVanish" -ForegroundColor White
-    Write-Host "     6. AirVPN" -ForegroundColor White
-    Write-Host "     7. Custom (any Gluetun-supported provider)" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  Select (1-7) [default: 1]: " -ForegroundColor Yellow -NoNewline
-    $otherChoice = Read-Host
-
-    switch ($otherChoice) {
-        "2" {
-            return @{
-                Provider = "private internet access"
-                Name = "Private Internet Access"
-                SupportsWireGuard = $true
-            }
-        }
-        "3" {
-            return @{
-                Provider = "windscribe"
-                Name = "Windscribe"
-                SupportsWireGuard = $true
-            }
-        }
-        "4" {
-            return @{
-                Provider = "cyberghost"
-                Name = "CyberGhost"
-                SupportsWireGuard = $true
-            }
-        }
-        "5" {
-            return @{
-                Provider = "ipvanish"
-                Name = "IPVanish"
-                SupportsWireGuard = $false
-                Protocol = "openvpn"
-            }
-        }
-        "6" {
-            return @{
-                Provider = "airvpn"
-                Name = "AirVPN"
-                SupportsWireGuard = $true
-            }
-        }
-        "7" {
-            Write-Host ""
-            Write-Host "  Enter the Gluetun provider name exactly as listed at:" -ForegroundColor White
-            Write-Host "  https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers" -ForegroundColor Cyan
-            Write-Host ""
-            Write-Host "  Provider name: " -ForegroundColor Yellow -NoNewline
-            $providerName = Read-Host
-            Write-Host ""
-            Write-Host "  Does this provider support WireGuard? (Y/N) [default: N]: " -ForegroundColor Yellow -NoNewline
-            $wgResponse = Read-Host
-            $supportsWg = $wgResponse -match "^[Yy]"
-            $result = @{
-                Provider = $providerName
-                Name = $providerName
-                SupportsWireGuard = $supportsWg
-            }
-            if (-not $supportsWg) {
-                $result.Protocol = "openvpn"
-            }
-            return $result
-        }
-        default {
-            return @{
-                Provider = "mullvad"
-                Name = "Mullvad"
-                SupportsWireGuard = $true
-            }
-        }
-    }
-}
-
-function Get-VPNProvider {
-    Write-Banner
-    Write-Host "  STEP 1: CHOOSE YOUR VPN" -ForegroundColor Magenta
-    Write-Host "  -----------------------" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "  RECOMMENDED " -ForegroundColor White -NoNewline
-    Write-Host "(Tested 10+ years for speed & security):" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "    1. NordVPN" -ForegroundColor Green -NoNewline
-    Write-Host "     - nordvpn.tomspark.tech " -ForegroundColor Gray -NoNewline
-    Write-Host "(4 extra months FREE!)" -ForegroundColor Green
-    Write-Host "    2. ProtonVPN" -ForegroundColor Cyan -NoNewline
-    Write-Host "   - protonvpn.tomspark.tech " -ForegroundColor Gray -NoNewline
-    Write-Host "(3 months FREE!)" -ForegroundColor Cyan
-    Write-Host "    3. Surfshark" -ForegroundColor Yellow -NoNewline
-    Write-Host "   - surfshark.tomspark.tech " -ForegroundColor Gray -NoNewline
-    Write-Host "(3 extra months FREE!)" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "  OTHER SUPPORTED VPNs:" -ForegroundColor White
-    Write-Host ""
-    Write-Host "    4. Other VPN provider" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  Select (1-4) [default: 1]: " -ForegroundColor Yellow -NoNewline
-    $choice = Read-Host
-
-    switch ($choice) {
-        "2" {
-            return @{
-                Provider = "protonvpn"
-                Name = "ProtonVPN"
-                Affiliate = "https://protonvpn.tomspark.tech/"
-                Bonus = "3 months FREE"
-                SupportsWireGuard = $true
-            }
-        }
-        "3" {
-            return @{
-                Provider = "surfshark"
-                Name = "Surfshark"
-                Affiliate = "https://surfshark.tomspark.tech/"
-                Bonus = "3 extra months FREE"
-                SupportsWireGuard = $true
-            }
-        }
-        "4" {
-            return Get-OtherVPNProvider
-        }
-        default {
-            return @{
-                Provider = "nordvpn"
-                Name = "NordVPN"
-                URL = "https://my.nordaccount.com/dashboard/nordvpn/manual-configuration/"
-                Affiliate = "https://nordvpn.tomspark.tech/"
-                Bonus = "4 extra months FREE"
-                SupportsWireGuard = $false
-                Protocol = "openvpn"
-            }
-        }
-    }
-}
-
-# --- VPN Protocol Selection (ProtonVPN/Surfshark only) ---
-function Get-VPNProtocol {
-    param([hashtable]$VPN)
-
-    if (-not $VPN.SupportsWireGuard) {
-        return @{
-            Protocol = "openvpn"
-            URL = $VPN.URL
-        }
-    }
-
-    Write-Banner
-    Write-Host "  STEP 1b: CHOOSE VPN PROTOCOL" -ForegroundColor Magenta
-    Write-Host "  ----------------------------" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "  Which protocol would you like to use?" -ForegroundColor White
-    Write-Host ""
-    Write-Host "    1. OpenVPN" -ForegroundColor Green -NoNewline
-    Write-Host "     - Traditional, widely compatible" -ForegroundColor Gray
-    Write-Host "    2. WireGuard" -ForegroundColor Cyan -NoNewline
-    Write-Host "   - Faster, more modern (Recommended)" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  Select (1-2) [default: 1]: " -ForegroundColor Yellow -NoNewline
-    $choice = Read-Host
-
-    switch ($choice) {
-        "2" {
-            $url = $null
-            switch ($VPN.Provider) {
-                "protonvpn" { $url = "https://account.proton.me/u/0/vpn/WireGuard" }
-                "surfshark" { $url = "https://my.surfshark.com/vpn/manual-setup/main/wireguard" }
-            }
-            $result = @{ Protocol = "wireguard" }
-            if ($url) { $result.URL = $url }
-            return $result
-        }
-        default {
-            $url = $null
-            switch ($VPN.Provider) {
-                "protonvpn" { $url = "https://account.proton.me/u/0/vpn/OpenVpnIKEv2" }
-                "surfshark" { $url = "https://my.surfshark.com/vpn/manual-setup/main/openvpn" }
-            }
-            $result = @{ Protocol = "openvpn" }
-            if ($url) { $result.URL = $url }
-            return $result
-        }
-    }
-}
-
-# --- Credential Collection ---
-function Get-VPNCredentials {
-    param(
-        [hashtable]$VPN,
-        [hashtable]$ProtocolInfo
-    )
-
-    Write-Banner
-
-    if ($ProtocolInfo.Protocol -eq "wireguard") {
-        Write-Host "  STEP 2: WIREGUARD CREDENTIALS" -ForegroundColor Magenta
-        Write-Host "  -----------------------------" -ForegroundColor DarkGray
-        Write-Host ""
-        Write-Warning-Custom "You need your WireGuard configuration from $($VPN.Name)"
-        Write-Host ""
-        Write-Host "  How to get them:" -ForegroundColor White
-        if ($ProtocolInfo.URL) {
-            Write-Host "  1. Go to: " -ForegroundColor Gray -NoNewline
-            Write-Host $ProtocolInfo.URL -ForegroundColor Cyan
-        } else {
-            Write-Host "  1. Log in to your " -ForegroundColor Gray -NoNewline
-            Write-Host $VPN.Name -ForegroundColor White -NoNewline
-            Write-Host " account" -ForegroundColor Gray
-            Write-Host "     Find the manual/service credentials or WireGuard config page" -ForegroundColor Gray
-        }
-        Write-Host "  2. Generate a new WireGuard configuration" -ForegroundColor Gray
-        Write-Host "  3. You'll need the " -ForegroundColor Gray -NoNewline
-        Write-Host "Private Key" -ForegroundColor White -NoNewline
-        Write-Host " and " -ForegroundColor Gray -NoNewline
-        Write-Host "Address" -ForegroundColor White -NoNewline
-        Write-Host " (IP)" -ForegroundColor Gray
-        Write-Host ""
-        Write-Host "  Example values:" -ForegroundColor White
-        Write-Host "    Private Key: " -ForegroundColor Gray -NoNewline
-        Write-Host "yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=" -ForegroundColor Cyan
-        Write-Host "    Address:     " -ForegroundColor Gray -NoNewline
-        Write-Host "10.2.0.2/32" -ForegroundColor Cyan
-        Write-Host ""
-
-        if ($VPN.Affiliate) {
-            Write-Host "  Don't have $($VPN.Name)? Get $($VPN.Bonus)!" -ForegroundColor Green
-            Write-Host "  $($VPN.Affiliate)" -ForegroundColor Cyan
-            Write-Host ""
-        }
-
-        if ($ProtocolInfo.URL) {
-            if (Ask-YesNo "Open $($VPN.Name) WireGuard page in your browser now?") {
-                Start-Process $ProtocolInfo.URL
-                Write-Host ""
-                Write-Info "Browser opened. Generate a config, then copy the Private Key and Address."
-                Press-Enter
-            }
-        }
-
-        Write-Host ""
-        Write-Host "  Enter your WireGuard Private Key: " -ForegroundColor Yellow -NoNewline
-        $privateKey = Read-Host
-
-        Write-Host "  Enter your WireGuard Address (e.g., 10.2.0.2/32): " -ForegroundColor Yellow -NoNewline
-        $address = Read-Host
-
-        if ([string]::IsNullOrWhiteSpace($privateKey) -or [string]::IsNullOrWhiteSpace($address)) {
-            Write-Error-Custom "Private Key and Address cannot be empty!"
-            return $null
-        }
-
-        return @{
-            Type = "wireguard"
-            PrivateKey = $privateKey.Trim()
-            Address = $address.Trim()
-        }
-    } else {
-        Write-Host "  STEP 2: VPN CREDENTIALS" -ForegroundColor Magenta
-        Write-Host "  -----------------------" -ForegroundColor DarkGray
-        Write-Host ""
-        Write-Warning-Custom "You need $($VPN.Name) 'Service Credentials' (NOT your email/password!)"
-        Write-Host ""
-        Write-Host "  How to get them:" -ForegroundColor White
-        if ($ProtocolInfo.URL) {
-            Write-Host "  1. Go to: " -ForegroundColor Gray -NoNewline
-            Write-Host $ProtocolInfo.URL -ForegroundColor Cyan
-        } else {
-            Write-Host "  1. Log in to your " -ForegroundColor Gray -NoNewline
-            Write-Host $VPN.Name -ForegroundColor White -NoNewline
-            Write-Host " account" -ForegroundColor Gray
-            Write-Host "     Find the manual/service credentials or OpenVPN setup page" -ForegroundColor Gray
-        }
-        Write-Host "  2. Look for 'Manual Setup' or 'OpenVPN' credentials" -ForegroundColor Gray
-        Write-Host "  3. Copy the Username and Password shown there" -ForegroundColor Gray
-        Write-Host ""
-
-        if ($VPN.Affiliate) {
-            Write-Host "  Don't have $($VPN.Name)? Get $($VPN.Bonus)!" -ForegroundColor Green
-            Write-Host "  $($VPN.Affiliate)" -ForegroundColor Cyan
-            Write-Host ""
-        }
-
-        if ($ProtocolInfo.URL) {
-            if (Ask-YesNo "Open $($VPN.Name) credential page in your browser now?") {
-                Start-Process $ProtocolInfo.URL
-                Write-Host ""
-                Write-Info "Browser opened. Copy your credentials, then come back here."
-                Press-Enter
-            }
-        }
-
-        Write-Host ""
-        Write-Host "  Enter your Service Username: " -ForegroundColor Yellow -NoNewline
-        $username = Read-Host
-
-        Write-Host "  Enter your Service Password: " -ForegroundColor Yellow -NoNewline
-        $password = Read-Host
-
-        if ([string]::IsNullOrWhiteSpace($username) -or [string]::IsNullOrWhiteSpace($password)) {
-            Write-Error-Custom "Username and password cannot be empty!"
-            return $null
-        }
-
-        return @{
-            Type = "openvpn"
-            Username = $username.Trim()
-            Password = $password.Trim()
-        }
-    }
-}
-
-function Get-ServerCountry {
-    Write-Banner
-    Write-Host "  STEP 3: SERVER LOCATION" -ForegroundColor Magenta
-    Write-Host "  -----------------------" -ForegroundColor DarkGray
-    Write-Host ""
-    Write-Host "  Pick the closest country to you for best speeds!" -ForegroundColor Yellow
-    Write-Host "  (Your VPN's no-logs policy protects you on ANY server)" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  Popular choices:" -ForegroundColor White
-    Write-Host "    1. United States" -ForegroundColor Gray
-    Write-Host "    2. United Kingdom" -ForegroundColor Gray
-    Write-Host "    3. Canada" -ForegroundColor Gray
-    Write-Host "    4. Netherlands" -ForegroundColor Gray
-    Write-Host "    5. Custom" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  Select (1-5) [default: 1]: " -ForegroundColor Yellow -NoNewline
-    $choice = Read-Host
-
-    switch ($choice) {
-        "2" { return "United Kingdom" }
-        "3" { return "Canada" }
-        "4" { return "Netherlands" }
-        "5" {
-            Write-Host "  Enter country name (capitalize first letter): " -ForegroundColor Yellow -NoNewline
-            return Read-Host
-        }
-        default { return "United States" }
-    }
-}
-
 function Get-Timezone {
     Write-Banner
-    Write-Host "  STEP 4: TIMEZONE" -ForegroundColor Magenta
+    Write-Host "  STEP 1: TIMEZONE" -ForegroundColor Magenta
     Write-Host "  ----------------" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  Common timezones:" -ForegroundColor White
@@ -652,10 +291,6 @@ function Get-Timezone {
 function New-EnvFile {
     param(
         [string]$Path,
-        [hashtable]$VPN,
-        [hashtable]$ProtocolInfo,
-        [hashtable]$Credentials,
-        [string]$Country,
         [string]$Timezone
     )
 
@@ -663,43 +298,7 @@ function New-EnvFile {
 # ==========================================
 # TOM SPARK'S PRIVACY BOX CONFIG
 # Created by Tom Spark | youtube.com/@TomSparkReviews
-#
-# VPN: $($VPN.Name) ($($VPN.Affiliate))
-# Protocol: $($ProtocolInfo.Protocol)
 # ==========================================
-
-# --- VPN PROVIDER ---
-VPN_PROVIDER=$($VPN.Provider)
-
-# --- VPN PROTOCOL ---
-# Options: openvpn, wireguard
-VPN_TYPE=$($ProtocolInfo.Protocol)
-
-# --- VPN CREDENTIALS ---
-# Credentials from: $($ProtocolInfo.URL)
-"@
-
-    if ($Credentials.Type -eq "wireguard") {
-        $content += @"
-
-# WireGuard Configuration
-WIREGUARD_PRIVATE_KEY="$($Credentials.PrivateKey)"
-WIREGUARD_ADDRESSES="$($Credentials.Address)"
-"@
-    } else {
-        $content += @"
-
-# OpenVPN Service Credentials
-VPN_USER="$($Credentials.Username)"
-VPN_PASSWORD="$($Credentials.Password)"
-"@
-    }
-
-    $content += @"
-
-
-# --- SERVER LOCATION ---
-SERVER_COUNTRIES=$Country
 
 # --- SYSTEM SETTINGS ---
 TZ=$Timezone
@@ -714,52 +313,20 @@ function New-DockerComposeFile {
 
     $content = @'
 # ==========================================
-# TOM SPARK'S PRIVACY BOX
+# TOM SPARK'S PRIVACY BOX (No-VPN edition)
 # Created by Tom Spark | youtube.com/@TomSparkReviews
+# Modified to remove the Gluetun VPN container.
 #
-# VPN Options:
-#   NordVPN:   nordvpn.tomspark.tech   (4 extra months FREE!)
-#   ProtonVPN: protonvpn.tomspark.tech (3 months FREE!)
-#   Surfshark: surfshark.tomspark.tech (3 extra months FREE!)
+# All services share the "arr" bridge network, so containers reach
+# each other by service name (e.g. http://qbittorrent:8080,
+# http://sonarr:8989). From your browser, use http://localhost:<port>.
 # ==========================================
 
 networks:
-  internal:
-    # Internal network for FlareSolverr to communicate with VPN-tunneled containers
+  arr:
     driver: bridge
 
 services:
-  gluetun:
-    image: qmcgaw/gluetun
-    container_name: gluetun
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    ports:
-      - 8080:8080   # qBittorrent
-      - 8181:9696   # Prowlarr (Safe Port - avoids Windows conflicts)
-      - 8989:8989   # Sonarr
-      - 7878:7878   # Radarr
-      - 8686:8686   # Lidarr
-    environment:
-      - VPN_SERVICE_PROVIDER=${VPN_PROVIDER}
-      - VPN_TYPE=${VPN_TYPE:-openvpn}
-      # OpenVPN credentials (used when VPN_TYPE=openvpn)
-      - OPENVPN_USER=${VPN_USER:-}
-      - OPENVPN_PASSWORD=${VPN_PASSWORD:-}
-      # WireGuard credentials (used when VPN_TYPE=wireguard)
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
-      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
-      - SERVER_COUNTRIES=${SERVER_COUNTRIES}
-      - FIREWALL_OUTBOUND_SUBNETS=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12
-    volumes:
-      - ${ROOT_DIR}/config/gluetun:/gluetun
-    networks:
-      - default
-      - internal
-    restart: always
-
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
@@ -768,13 +335,23 @@ services:
       - PGID=1000
       - TZ=${TZ}
       - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    ports:
+      - 8080:8080         # qBittorrent Web UI
+      - 6881:6881         # Torrent traffic (TCP)
+      - 6881:6881/udp     # Torrent traffic (UDP)
     volumes:
-      - ${ROOT_DIR}/config/qbittorrent:/config
-      - ${ROOT_DIR}/media/downloads:/data/downloads
-    network_mode: service:gluetun
-    depends_on:
-      - gluetun
-    restart: always
+      - ./config/qbittorrent:/config
+      - ./media/downloads:/data/downloads
+    networks:
+      - arr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
 
   prowlarr:
     image: lscr.io/linuxserver/prowlarr:latest
@@ -783,12 +360,19 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+    ports:
+      - 8181:9696         # Prowlarr (Safe Port - avoids Windows conflicts)
     volumes:
-      - ${ROOT_DIR}/config/prowlarr:/config
-    network_mode: service:gluetun
-    depends_on:
-      - gluetun
-    restart: always
+      - ./config/prowlarr:/config
+    networks:
+      - arr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9696/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
@@ -797,14 +381,21 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+    ports:
+      - 8989:8989         # Sonarr
     volumes:
-      - ${ROOT_DIR}/config/sonarr:/config
-      - ${ROOT_DIR}/media:/data/media
-      - ${ROOT_DIR}/media/downloads:/data/downloads
-    network_mode: service:gluetun
-    depends_on:
-      - gluetun
-    restart: always
+      - ./config/sonarr:/config
+      - ./media:/data/media
+      - ./media/downloads:/data/downloads
+    networks:
+      - arr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8989/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
   radarr:
     image: lscr.io/linuxserver/radarr:latest
@@ -813,14 +404,21 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+    ports:
+      - 7878:7878         # Radarr
     volumes:
-      - ${ROOT_DIR}/config/radarr:/config
-      - ${ROOT_DIR}/media:/data/media
-      - ${ROOT_DIR}/media/downloads:/data/downloads
-    network_mode: service:gluetun
-    depends_on:
-      - gluetun
-    restart: always
+      - ./config/radarr:/config
+      - ./media:/data/media
+      - ./media/downloads:/data/downloads
+    networks:
+      - arr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:7878/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
   # --- Media Server (accessible on local network) ---
   jellyfin:
@@ -831,13 +429,21 @@ services:
       - PGID=1000
       - TZ=${TZ}
     ports:
-      - 8096:8096   # Jellyfin Web UI
+      - 8096:8096         # Jellyfin Web UI
     volumes:
-      - ${ROOT_DIR}/config/jellyfin:/config
-      - ${ROOT_DIR}/media/tv:/data/tvshows
-      - ${ROOT_DIR}/media/movies:/data/movies
-      - ${ROOT_DIR}/media/music:/data/music
-    restart: always
+      - ./config/jellyfin:/config
+      - ./media/tv:/data/tvshows
+      - ./media/movies:/data/movies
+      - ./media/music:/data/music
+    networks:
+      - arr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8096/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
   # --- SABnzbd (Optional - enable with: docker compose --profile sabnzbd up -d) ---
   sabnzbd:
@@ -850,11 +456,13 @@ services:
       - PGID=1000
       - TZ=${TZ}
     ports:
-      - 8085:8080   # SABnzbd Web UI
+      - 8085:8080         # SABnzbd Web UI
     volumes:
-      - ${ROOT_DIR}/config/sabnzbd:/config
-      - ${ROOT_DIR}/media/downloads:/data/downloads
-    restart: always
+      - ./config/sabnzbd:/config
+      - ./media/downloads:/data/downloads
+    networks:
+      - arr
+    restart: unless-stopped
 
   # --- Lidarr (Optional - enable with: docker compose --profile lidarr up -d) ---
   lidarr:
@@ -866,14 +474,21 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+    ports:
+      - 8686:8686         # Lidarr
     volumes:
-      - ${ROOT_DIR}/config/lidarr:/config
-      - ${ROOT_DIR}/media:/data/media
-      - ${ROOT_DIR}/media/downloads:/data/downloads
-    network_mode: service:gluetun
-    depends_on:
-      - gluetun
-    restart: always
+      - ./config/lidarr:/config
+      - ./media:/data/media
+      - ./media/downloads:/data/downloads
+    networks:
+      - arr
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8686/ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
   # --- Notifications (Optional - enable with: docker compose --profile notifications up -d) ---
   notifiarr:
@@ -883,13 +498,16 @@ services:
     profiles:
       - notifications
     environment:
-      - DN_API_KEY=${NOTIFIARR_API_KEY}
+      - DN_API_KEY=${NOTIFIARR_API_KEY:-}
       - TZ=${TZ}
     ports:
-      - 5454:5454   # Notifiarr Web UI
+      - 5454:5454         # Notifiarr Web UI
     volumes:
-      - ${ROOT_DIR}/config/notifiarr:/config
-    restart: always
+      - ./config/notifiarr:/config
+      - /var/run/utmp:/var/run/utmp:ro
+    networks:
+      - arr
+    restart: unless-stopped
 
   # --- FlareSolverr (Optional - enable with: docker compose --profile flaresolverr up -d) ---
   flaresolverr:
@@ -900,11 +518,10 @@ services:
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ}
-    ports:
-      - 8191:8191   # FlareSolverr (for debugging/testing)
+    # No host ports needed. Prowlarr reaches it at http://flaresolverr:8191
     networks:
-      - internal
-    restart: always
+      - arr
+    restart: unless-stopped
 '@
 
     $content | Out-File -FilePath "$Path\docker-compose.yml" -Encoding UTF8 -NoNewline
@@ -932,22 +549,25 @@ function Start-PrivacyBox {
 
     docker compose up -d 2>&1 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
 
-    Pop-Location
-
     Write-Host ""
-    Write-Step "3" "Waiting for VPN to connect..."
+    Write-Step "3" "Waiting for containers to start..."
 
+    $coreContainers = @("qbittorrent", "prowlarr", "sonarr", "radarr", "jellyfin")
     $maxAttempts = 30
     $attempt = 0
-    $connected = $false
+    $allRunning = $false
 
-    while ($attempt -lt $maxAttempts -and -not $connected) {
+    while ($attempt -lt $maxAttempts -and -not $allRunning) {
         Start-Sleep -Seconds 2
         $attempt++
 
-        $health = docker inspect --format='{{.State.Health.Status}}' gluetun 2>$null
-        if ($health -eq "healthy") {
-            $connected = $true
+        $allRunning = $true
+        foreach ($name in $coreContainers) {
+            $status = docker inspect --format '{{.State.Status}}' $name 2>$null
+            if ($status -ne "running") {
+                $allRunning = $false
+                break
+            }
         }
 
         Write-Host "." -NoNewline -ForegroundColor Yellow
@@ -956,22 +576,29 @@ function Start-PrivacyBox {
     Write-Host ""
     Write-Host ""
 
-    if ($connected) {
-        # Get VPN IP
-        $logs = docker logs gluetun 2>&1 | Select-String "Public IP address is"
-        if ($logs) {
-            $ip = $logs[-1] -replace '.*Public IP address is (\S+).*', '$1'
-            Write-Success "VPN Connected! Your IP: $ip"
-        } else {
-            Write-Success "VPN Connected!"
+    if ($allRunning) {
+        Write-Success "All core containers are running!"
+        foreach ($name in $coreContainers) {
+            # Health is informational only; containers may still be starting up
+            $health = docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' $name 2>$null
+            if ($health -eq "healthy") {
+                Write-Host "      $name" -ForegroundColor Gray -NoNewline
+                Write-Host " (healthy)" -ForegroundColor Green
+            } elseif ($health) {
+                Write-Host "      $name" -ForegroundColor Gray -NoNewline
+                Write-Host " ($health, still warming up is normal)" -ForegroundColor DarkGray
+            } else {
+                Write-Host "      $name" -ForegroundColor Gray -NoNewline
+                Write-Host " (running)" -ForegroundColor Green
+            }
         }
+        Pop-Location
         return $true
     } else {
-        Write-Error-Custom "VPN connection timed out. Checking logs..."
+        Write-Error-Custom "Some containers did not start in time. Current status:"
         Write-Host ""
-        docker logs gluetun 2>&1 | Select-String "AUTH_FAILED|error|Error" | Select-Object -Last 5 | ForEach-Object {
-            Write-Host "      $_" -ForegroundColor Red
-        }
+        docker compose ps 2>&1 | ForEach-Object { Write-Host "      $_" -ForegroundColor Red }
+        Pop-Location
         return $false
     }
 }
@@ -980,8 +607,8 @@ function Start-PrivacyBox {
 function Show-SetupGuide {
     # --- qBittorrent Setup ---
     Show-BeginnerTip -Title "What is qBittorrent?" -Body "qBittorrent is a download client for torrents. Think
-of it like a download manager. All of its traffic goes
-through the VPN tunnel so your ISP never sees it."
+of it like a download manager. Sonarr, Radarr and Lidarr
+send it the files to download."
     Write-Banner
     Write-Host "  SETUP GUIDE: qBittorrent (Step 1 of 4)" -ForegroundColor Magenta
     Write-Host "  --------------------------------------" -ForegroundColor DarkGray
@@ -1015,13 +642,6 @@ through the VPN tunnel so your ISP never sees it."
     Write-Host ""
     Write-Host "  After logging in, change your password:" -ForegroundColor Yellow
     Write-Host "    Tools > Options > Web UI > Password" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  " -NoNewline
-    Write-Host " VPN VERIFICATION " -BackgroundColor DarkGreen -ForegroundColor White
-    Write-Host "  Go to: Tools > Options > Advanced" -ForegroundColor White
-    Write-Host "  Look for 'Network Interface' - it should say: " -ForegroundColor White -NoNewline
-    Write-Host "tun0" -ForegroundColor Green
-    Write-Host "  This proves your traffic is going through the VPN tunnel!" -ForegroundColor Gray
 
     Press-Enter
 
@@ -1079,7 +699,7 @@ qBittorrent, and organize them into neat folders."
     Write-Host "     - Go to: Settings > Download Clients" -ForegroundColor White
     Write-Host "     - Click '+' and select 'qBittorrent'" -ForegroundColor White
     Write-Host "     - Host: " -ForegroundColor White -NoNewline
-    Write-Host "localhost" -ForegroundColor Cyan
+    Write-Host "qbittorrent" -ForegroundColor Cyan
     Write-Host "     - Port: " -ForegroundColor White -NoNewline
     Write-Host "8080" -ForegroundColor Cyan
     Write-Host "     - Username: " -ForegroundColor White -NoNewline
@@ -1119,7 +739,7 @@ them automatically."
     Write-Host "     - Go to: Settings > Download Clients" -ForegroundColor White
     Write-Host "     - Click '+' and select 'qBittorrent'" -ForegroundColor White
     Write-Host "     - Host: " -ForegroundColor White -NoNewline
-    Write-Host "localhost" -ForegroundColor Cyan
+    Write-Host "qbittorrent" -ForegroundColor Cyan
     Write-Host "     - Port: " -ForegroundColor White -NoNewline
     Write-Host "8080" -ForegroundColor Cyan
     Write-Host "     - Username/Password: same as before" -ForegroundColor White
@@ -1145,9 +765,9 @@ them automatically."
     Write-Host "  Add Sonarr:" -ForegroundColor White
     Write-Host "    - Click '+' and select 'Sonarr'" -ForegroundColor Gray
     Write-Host "    - Prowlarr Server: " -ForegroundColor Gray -NoNewline
-    Write-Host "http://localhost:9696" -ForegroundColor Cyan
+    Write-Host "http://prowlarr:9696" -ForegroundColor Cyan
     Write-Host "    - Sonarr Server: " -ForegroundColor Gray -NoNewline
-    Write-Host "http://localhost:8989" -ForegroundColor Cyan
+    Write-Host "http://sonarr:8989" -ForegroundColor Cyan
     Write-Host "    - API Key: " -ForegroundColor Gray -NoNewline
     Write-Host "(paste the Sonarr API key you copied)" -ForegroundColor Cyan
     Write-Host "    - Click 'Test' then 'Save'" -ForegroundColor Gray
@@ -1155,9 +775,9 @@ them automatically."
     Write-Host "  Add Radarr:" -ForegroundColor White
     Write-Host "    - Click '+' and select 'Radarr'" -ForegroundColor Gray
     Write-Host "    - Prowlarr Server: " -ForegroundColor Gray -NoNewline
-    Write-Host "http://localhost:9696" -ForegroundColor Cyan
+    Write-Host "http://prowlarr:9696" -ForegroundColor Cyan
     Write-Host "    - Radarr Server: " -ForegroundColor Gray -NoNewline
-    Write-Host "http://localhost:7878" -ForegroundColor Cyan
+    Write-Host "http://radarr:7878" -ForegroundColor Cyan
     Write-Host "    - API Key: " -ForegroundColor Gray -NoNewline
     Write-Host "(paste the Radarr API key you copied)" -ForegroundColor Cyan
     Write-Host "    - Click 'Test' then 'Save'" -ForegroundColor Gray
@@ -1165,9 +785,9 @@ them automatically."
     Write-Host "  If you enabled Lidarr, add it too:" -ForegroundColor Gray
     Write-Host "    - Click '+' and select 'Lidarr'" -ForegroundColor Gray
     Write-Host "    - Prowlarr Server: " -ForegroundColor Gray -NoNewline
-    Write-Host "http://localhost:9696" -ForegroundColor Cyan
+    Write-Host "http://prowlarr:9696" -ForegroundColor Cyan
     Write-Host "    - Lidarr Server: " -ForegroundColor Gray -NoNewline
-    Write-Host "http://localhost:8686" -ForegroundColor Cyan
+    Write-Host "http://lidarr:8686" -ForegroundColor Cyan
     Write-Host "    - API Key: " -ForegroundColor Gray -NoNewline
     Write-Host "(from Lidarr > Settings > General)" -ForegroundColor Cyan
     Write-Host "    - Click 'Test' then 'Save'" -ForegroundColor Gray
@@ -1257,29 +877,7 @@ browser. It's completely free and open-source."
     Write-Host "  Use a secure mesh network - NO port forwarding needed!" -ForegroundColor Gray
     Write-Host ""
     Write-Host "  " -NoNewline
-    Write-Host " OPTION 1: NordVPN Meshnet (You already have NordVPN!) " -BackgroundColor DarkGreen -ForegroundColor White
-    Write-Host ""
-    Write-Host "  On this PC:" -ForegroundColor Yellow
-    Write-Host "    1. Install NordVPN app: " -ForegroundColor White -NoNewline
-    Write-Host "https://nordvpn.com/download/" -ForegroundColor Cyan
-    Write-Host "    2. Sign in and go to 'Meshnet' in the left sidebar" -ForegroundColor White
-    Write-Host "    3. Turn ON Meshnet" -ForegroundColor White
-    Write-Host "    4. Note your device's Meshnet name (e.g., my-pc.nord)" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  On your phone/laptop (when away from home):" -ForegroundColor Yellow
-    Write-Host "    1. Install NordVPN app and sign in with same account" -ForegroundColor White
-    Write-Host "    2. Go to Meshnet and turn it ON" -ForegroundColor White
-    Write-Host "    3. Your PC will appear under 'Your devices'" -ForegroundColor White
-    Write-Host "    4. Open Jellyfin/Emby app and connect to:" -ForegroundColor White
-    Write-Host "       " -ForegroundColor White -NoNewline
-    Write-Host "http://your-pc-name.nord:8096" -ForegroundColor Cyan -NoNewline
-    Write-Host " (Jellyfin)" -ForegroundColor Gray
-    Write-Host "       " -ForegroundColor White -NoNewline
-    Write-Host "http://your-pc-name.nord:8920" -ForegroundColor Cyan -NoNewline
-    Write-Host " (Emby)" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  " -NoNewline
-    Write-Host " OPTION 2: Tailscale (Free alternative) " -BackgroundColor DarkBlue -ForegroundColor White
+    Write-Host " RECOMMENDED: Tailscale (Free) " -BackgroundColor DarkBlue -ForegroundColor White
     Write-Host ""
     Write-Host "  On this PC:" -ForegroundColor Yellow
     Write-Host "    1. Download Tailscale: " -ForegroundColor White -NoNewline
@@ -1297,9 +895,8 @@ browser. It's completely free and open-source."
     Write-Host "  " -NoNewline
     Write-Host " WHY THIS IS SAFE " -BackgroundColor DarkMagenta -ForegroundColor White
     Write-Host ""
-    Write-Host "  Both options create an encrypted tunnel directly between your devices." -ForegroundColor Gray
+    Write-Host "  Tailscale creates an encrypted tunnel directly between your devices." -ForegroundColor Gray
     Write-Host "  Nothing is exposed to the internet - no hackers can find your server!" -ForegroundColor Gray
-    Write-Host "  This does NOT interfere with your torrent VPN (that runs in Docker)." -ForegroundColor Gray
 
     Press-Enter
 
@@ -1332,7 +929,7 @@ browser. It's completely free and open-source."
     Write-Host "  Your media folder:" -ForegroundColor Yellow
     Write-Host "    $env:USERPROFILE\Desktop\PrivacyServer\media\" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  Your traffic is now secured through the VPN!" -ForegroundColor Green
+    Write-Host "  Your media server is up and running!" -ForegroundColor Green
     Write-Host ""
     Write-Host "  =============================================" -ForegroundColor DarkGray
     Write-Host "  IS IT RUNNING?" -ForegroundColor Yellow
@@ -1351,14 +948,6 @@ browser. It's completely free and open-source."
     Write-Host "  =============================================" -ForegroundColor Cyan
     Write-Host "  Created by TOM SPARK" -ForegroundColor Yellow
     Write-Host "  Subscribe: youtube.com/@TomSparkReviews" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  VPN Deals:" -ForegroundColor White
-    Write-Host "    NordVPN:   nordvpn.tomspark.tech   " -ForegroundColor Green -NoNewline
-    Write-Host "(4 extra months FREE!)" -ForegroundColor Green
-    Write-Host "    ProtonVPN: protonvpn.tomspark.tech " -ForegroundColor Cyan -NoNewline
-    Write-Host "(3 months FREE!)" -ForegroundColor Cyan
-    Write-Host "    Surfshark: surfshark.tomspark.tech " -ForegroundColor Yellow -NoNewline
-    Write-Host "(3 extra months FREE!)" -ForegroundColor Yellow
     Write-Host "  =============================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  Questions? Join the Discord!" -ForegroundColor Yellow
@@ -1461,13 +1050,13 @@ function Setup-Notifiarr {
     Write-Host "    1. Go to 'Starr Apps' in the menu" -ForegroundColor White
     Write-Host "    2. Enable Radarr and add:" -ForegroundColor White
     Write-Host "       - URL: " -ForegroundColor Gray -NoNewline
-    Write-Host "http://localhost:7878" -ForegroundColor Cyan
+    Write-Host "http://radarr:7878" -ForegroundColor Cyan
     Write-Host "       - API Key: " -ForegroundColor Gray -NoNewline
     Write-Host "(from Radarr > Settings > General)" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "    3. Enable Sonarr and add:" -ForegroundColor White
     Write-Host "       - URL: " -ForegroundColor Gray -NoNewline
-    Write-Host "http://localhost:8989" -ForegroundColor Cyan
+    Write-Host "http://sonarr:8989" -ForegroundColor Cyan
     Write-Host "       - API Key: " -ForegroundColor Gray -NoNewline
     Write-Host "(from Sonarr > Settings > General)" -ForegroundColor Cyan
     Write-Host ""
@@ -1663,7 +1252,7 @@ function Setup-Lidarr {
     Write-Host "     - Go to: Settings > Download Clients" -ForegroundColor White
     Write-Host "     - Click '+' and select 'qBittorrent'" -ForegroundColor White
     Write-Host "     - Host: " -ForegroundColor White -NoNewline
-    Write-Host "localhost" -ForegroundColor Cyan
+    Write-Host "qbittorrent" -ForegroundColor Cyan
     Write-Host "     - Port: " -ForegroundColor White -NoNewline
     Write-Host "8080" -ForegroundColor Cyan
     Write-Host "     - Username: " -ForegroundColor White -NoNewline
@@ -1682,9 +1271,9 @@ function Setup-Lidarr {
     Write-Host "     - Go to: Settings > Apps" -ForegroundColor White
     Write-Host "     - Click '+' and select 'Lidarr'" -ForegroundColor White
     Write-Host "     - Prowlarr Server: " -ForegroundColor White -NoNewline
-    Write-Host "http://localhost:9696" -ForegroundColor Cyan
+    Write-Host "http://prowlarr:9696" -ForegroundColor Cyan
     Write-Host "     - Lidarr Server: " -ForegroundColor White -NoNewline
-    Write-Host "http://localhost:8686" -ForegroundColor Cyan
+    Write-Host "http://lidarr:8686" -ForegroundColor Cyan
     Write-Host "     - API Key: " -ForegroundColor White -NoNewline
     Write-Host "(paste the Lidarr API key)" -ForegroundColor Cyan
     Write-Host "     - Click 'Test' then 'Save'" -ForegroundColor White
@@ -1719,26 +1308,6 @@ function Main {
     Show-ArrOverview
 
     # Collect configuration
-    Show-BeginnerTip -Title "Why do you need a VPN?" -Body "Your ISP (internet provider) can see everything you
-download. A VPN encrypts your traffic so they can't.
-Only the torrent containers use the VPN — your normal
-browsing stays on your regular connection."
-    $vpn = Get-VPNProvider
-    Write-Host ""
-    Write-Success "Selected: $($vpn.Name)"
-    Press-Enter
-
-    $protocolInfo = Get-VPNProtocol -VPN $vpn
-    Write-Host ""
-    Write-Success "Selected: $($protocolInfo.Protocol)"
-    Press-Enter
-
-    $credentials = Get-VPNCredentials -VPN $vpn -ProtocolInfo $protocolInfo
-    if (-not $credentials) {
-        exit 1
-    }
-
-    $country = Get-ServerCountry
     $timezone = Get-Timezone
 
     # Confirmation
@@ -1747,16 +1316,6 @@ browsing stays on your regular connection."
     Write-Host "  ---------------------" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  Install Path:    $InstallPath" -ForegroundColor White
-    Write-Host "  VPN Provider:    $($vpn.Name)" -ForegroundColor White
-    Write-Host "  VPN Protocol:    $($protocolInfo.Protocol)" -ForegroundColor White
-    if ($credentials.Type -eq "wireguard") {
-        Write-Host "  WG Private Key:  $($credentials.PrivateKey.Substring(0, [Math]::Min(10, $credentials.PrivateKey.Length)))..." -ForegroundColor White
-        Write-Host "  WG Address:      $($credentials.Address)" -ForegroundColor White
-    } else {
-        Write-Host "  VPN Username:    $($credentials.Username)" -ForegroundColor White
-        Write-Host "  VPN Password:    $("*" * $credentials.Password.Length)" -ForegroundColor White
-    }
-    Write-Host "  Server Country:  $country" -ForegroundColor White
     Write-Host "  Timezone:        $timezone" -ForegroundColor White
     Write-Host ""
 
@@ -1780,7 +1339,7 @@ browsing stays on your regular connection."
     Write-Success "Directories created"
 
     Write-Step "2" "Generating .env file..."
-    New-EnvFile -Path $InstallPath -VPN $vpn -ProtocolInfo $protocolInfo -Credentials $credentials -Country $country -Timezone $timezone
+    New-EnvFile -Path $InstallPath -Timezone $timezone
     Write-Success ".env file created"
 
     Write-Step "3" "Generating docker-compose.yml..."
@@ -1801,28 +1360,13 @@ browsing stays on your regular connection."
         Setup-Lidarr -Path $InstallPath
     } else {
         Write-Host ""
-        Write-Error-Custom "Setup failed. Please check your VPN credentials."
+        Write-Error-Custom "Setup failed. Some containers did not start."
         Write-Host ""
         Write-Host "  Common fixes:" -ForegroundColor Yellow
-        if ($protocolInfo.Protocol -eq "wireguard") {
-            Write-Host "    1. Make sure your WireGuard Private Key is correct" -ForegroundColor White
-            Write-Host "    2. Verify your WireGuard Address matches the config" -ForegroundColor White
-            if ($protocolInfo.URL) {
-                Write-Host "    3. Generate a new config from: " -ForegroundColor White -NoNewline
-                Write-Host $protocolInfo.URL -ForegroundColor Cyan
-            } else {
-                Write-Host "    3. Generate a new config from your $($vpn.Name) account" -ForegroundColor White
-            }
-        } else {
-            Write-Host "    1. Make sure you're using 'Service Credentials' from $($vpn.Name)" -ForegroundColor White
-            Write-Host "    2. NOT your email/password login" -ForegroundColor White
-            if ($protocolInfo.URL) {
-                Write-Host "    3. Get credentials from: " -ForegroundColor White -NoNewline
-                Write-Host $protocolInfo.URL -ForegroundColor Cyan
-            } else {
-                Write-Host "    3. Get credentials from your $($vpn.Name) account" -ForegroundColor White
-            }
-        }
+        Write-Host "    1. Make sure Docker Desktop is running and has finished starting" -ForegroundColor White
+        Write-Host "    2. Check no other program is using ports 8080, 8181, 8989, 7878 or 8096" -ForegroundColor White
+        Write-Host "    3. View recent logs from the PrivacyServer folder:" -ForegroundColor White
+        Write-Host "       docker compose logs --tail 50" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  To retry, run this script again." -ForegroundColor Gray
     }

@@ -1,57 +1,18 @@
 # ==========================================
-# TOM SPARK'S PRIVACY BOX
+# TOM SPARK'S PRIVACY BOX (No-VPN edition)
 # Created by Tom Spark | youtube.com/@TomSparkReviews
+# Modified to remove the Gluetun VPN container.
 #
-# VPN Options:
-#   NordVPN:   nordvpn.tomspark.tech   (4 extra months FREE!)
-#   ProtonVPN: protonvpn.tomspark.tech (3 months FREE!)
-#   Surfshark: surfshark.tomspark.tech (3 extra months FREE!)
+# All services share the "arr" bridge network, so containers reach
+# each other by service name (e.g. http://qbittorrent:8080,
+# http://sonarr:8989). From your browser, use http://localhost:<port>.
 # ==========================================
 
 networks:
-  internal:
-    # Internal network for FlareSolverr to communicate with VPN-tunneled containers
+  arr:
     driver: bridge
 
 services:
-  gluetun:
-    image: qmcgaw/gluetun
-    container_name: gluetun
-    cap_add:
-      - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    ports:
-      - 8080:8080   # qBittorrent
-      - 8181:9696   # Prowlarr (Safe Port - avoids Windows conflicts)
-      - 8989:8989   # Sonarr
-      - 7878:7878   # Radarr
-      - 8686:8686   # Lidarr
-    environment:
-      - VPN_SERVICE_PROVIDER=${VPN_PROVIDER}
-      - VPN_TYPE=${VPN_TYPE:-openvpn}
-      # OpenVPN credentials (used when VPN_TYPE=openvpn)
-      - OPENVPN_USER=${VPN_USER:-}
-      - OPENVPN_PASSWORD=${VPN_PASSWORD:-}
-      # WireGuard credentials (used when VPN_TYPE=wireguard)
-      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
-      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
-      - SERVER_COUNTRIES=${SERVER_COUNTRIES}
-      - FREE_ONLY=${FREE_ONLY:-off}
-      - FIREWALL_OUTBOUND_SUBNETS=192.168.0.0/16,10.0.0.0/8,172.16.0.0/12
-    volumes:
-      - ./config/gluetun:/gluetun
-    networks:
-      - default
-      - internal
-    healthcheck:
-      test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
@@ -60,15 +21,18 @@ services:
       - PGID=1000
       - TZ=${TZ}
       - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    ports:
+      - 8080:8080         # qBittorrent Web UI
+      - 6881:6881         # Torrent traffic (TCP)
+      - 6881:6881/udp     # Torrent traffic (UDP)
     volumes:
       - ./config/qbittorrent:/config
       - ./media/downloads:/data/downloads
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
+    networks:
+      - arr
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080", "||", "exit", "1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -82,14 +46,14 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+    ports:
+      - 8181:9696         # Prowlarr (Safe Port - avoids Windows conflicts)
     volumes:
       - ./config/prowlarr:/config
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
+    networks:
+      - arr
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9696/ping", "||", "exit", "1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:9696/ping || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -103,16 +67,16 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+    ports:
+      - 8989:8989         # Sonarr
     volumes:
       - ./config/sonarr:/config
       - ./media:/data/media
       - ./media/downloads:/data/downloads
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
+    networks:
+      - arr
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8989/ping", "||", "exit", "1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8989/ping || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -126,16 +90,16 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+    ports:
+      - 7878:7878         # Radarr
     volumes:
       - ./config/radarr:/config
       - ./media:/data/media
       - ./media/downloads:/data/downloads
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
+    networks:
+      - arr
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7878/ping", "||", "exit", "1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:7878/ping || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -151,14 +115,16 @@ services:
       - PGID=1000
       - TZ=${TZ}
     ports:
-      - 8096:8096   # Jellyfin Web UI
+      - 8096:8096         # Jellyfin Web UI
     volumes:
       - ./config/jellyfin:/config
       - ./media/tv:/data/tvshows
       - ./media/movies:/data/movies
       - ./media/music:/data/music
+    networks:
+      - arr
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8096/health", "||", "exit", "1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8096/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -166,8 +132,6 @@ services:
     restart: unless-stopped
 
   # --- SABnzbd (Optional - enable with: docker compose --profile sabnzbd up -d) ---
-  # NOTE: SABnzbd is NOT routed through VPN. Usenet traffic is already SSL-encrypted,
-  # and routing through VPN would conflict with qBittorrent's port inside gluetun.
   sabnzbd:
     image: lscr.io/linuxserver/sabnzbd:latest
     container_name: sabnzbd
@@ -178,10 +142,12 @@ services:
       - PGID=1000
       - TZ=${TZ}
     ports:
-      - 8085:8080   # SABnzbd Web UI
+      - 8085:8080         # SABnzbd Web UI
     volumes:
       - ./config/sabnzbd:/config
       - ./media/downloads:/data/downloads
+    networks:
+      - arr
     restart: unless-stopped
 
   # --- Lidarr (Optional - enable with: docker compose --profile lidarr up -d) ---
@@ -194,16 +160,16 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+    ports:
+      - 8686:8686         # Lidarr
     volumes:
       - ./config/lidarr:/config
       - ./media:/data/media
       - ./media/downloads:/data/downloads
-    network_mode: service:gluetun
-    depends_on:
-      gluetun:
-        condition: service_healthy
+    networks:
+      - arr
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8686/ping", "||", "exit", "1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8686/ping || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -218,13 +184,15 @@ services:
     profiles:
       - notifications
     environment:
-      - DN_API_KEY=${NOTIFIARR_API_KEY}
+      - DN_API_KEY=${NOTIFIARR_API_KEY:-}
       - TZ=${TZ}
     ports:
-      - 5454:5454   # Notifiarr Web UI
+      - 5454:5454         # Notifiarr Web UI
     volumes:
       - ./config/notifiarr:/config
       - /var/run/utmp:/var/run/utmp:ro
+    networks:
+      - arr
     restart: unless-stopped
 
   # --- FlareSolverr (Optional - enable with: docker compose --profile flaresolverr up -d) ---
@@ -236,7 +204,7 @@ services:
     environment:
       - LOG_LEVEL=info
       - TZ=${TZ}
-    # No host ports needed — Prowlarr reaches FlareSolverr via the internal network
+    # No host ports needed. Prowlarr reaches it at http://flaresolverr:8191
     networks:
-      - internal
+      - arr
     restart: unless-stopped

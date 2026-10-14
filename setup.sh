@@ -6,7 +6,7 @@
 # LICENSE: MIT with Attribution - You MUST credit Tom Spark
 #          if you share, modify, or create content based on this.
 #
-# GitHub: https://github.com/loponai/tomsparkprivacyarrsuite
+# Original: https://github.com/loponai/tomsparkprivacyarrsuite (No-VPN edition)
 # ============================================================
 
 VERSION="1.0.0"
@@ -153,7 +153,7 @@ show_arr_overview() {
     echo -e "  ${CYAN}┌─────────────┬──────────────────────────────────────────┐${NC}"
     echo -e "  ${CYAN}│${NC} ${YELLOW}Service${NC}     ${CYAN}│${NC} ${WHITE}What it does${NC}                              ${CYAN}│${NC}"
     echo -e "  ${CYAN}├─────────────┼──────────────────────────────────────────┤${NC}"
-    echo -e "  ${CYAN}│${NC} ${GREEN}qBittorrent${NC} ${CYAN}│${NC} ${GRAY}Downloads files (through VPN for safety)${NC}  ${CYAN}│${NC}"
+    echo -e "  ${CYAN}│${NC} ${GREEN}qBittorrent${NC} ${CYAN}│${NC} ${GRAY}Downloads torrent files${NC}                  ${CYAN}│${NC}"
     echo -e "  ${CYAN}│${NC} ${GREEN}Prowlarr${NC}    ${CYAN}│${NC} ${GRAY}Searches torrent sites for content${NC}       ${CYAN}│${NC}"
     echo -e "  ${CYAN}│${NC} ${GREEN}Sonarr${NC}      ${CYAN}│${NC} ${GRAY}Finds & organizes TV shows automatically${NC} ${CYAN}│${NC}"
     echo -e "  ${CYAN}│${NC} ${GREEN}Radarr${NC}      ${CYAN}│${NC} ${GRAY}Finds & organizes movies automatically${NC}   ${CYAN}│${NC}"
@@ -168,8 +168,6 @@ show_arr_overview() {
     echo ""
     echo -e "  ${GRAY}You search in${NC} ${GREEN}Sonarr/Radarr${NC} ${GRAY}→${NC} ${GREEN}Prowlarr${NC} ${GRAY}finds it →${NC} ${GREEN}qBittorrent${NC} ${GRAY}downloads it${NC}"
     echo -e "  ${GRAY}→${NC} ${GREEN}Sonarr/Radarr${NC} ${GRAY}organizes it →${NC} ${GREEN}Jellyfin${NC} ${GRAY}streams it to your devices${NC}"
-    echo ""
-    echo -e "  ${YELLOW}All torrent traffic is routed through your VPN for privacy.${NC}"
 
     press_enter
 }
@@ -212,402 +210,9 @@ test_docker_running() {
     return 0
 }
 
-# --- VPN Provider Selection ---
-get_vpn_provider() {
-    write_banner
-    echo -e "  ${MAGENTA}STEP 1: CHOOSE YOUR VPN${NC}"
-    echo -e "  ${DARKGRAY}-----------------------${NC}"
-    echo ""
-    echo -e "  ${WHITE}RECOMMENDED ${GRAY}(Tested 10+ years for speed & security):${NC}"
-    echo ""
-    echo -e "    ${GREEN}1. NordVPN${NC}     ${GRAY}- nordvpn.tomspark.tech${NC} ${GREEN}(4 extra months FREE!)${NC}"
-    echo -e "    ${CYAN}2. ProtonVPN${NC}   ${GRAY}- protonvpn.tomspark.tech${NC} ${CYAN}(3 months FREE!)${NC}"
-    echo -e "    ${YELLOW}3. Surfshark${NC}   ${GRAY}- surfshark.tomspark.tech${NC} ${YELLOW}(3 extra months FREE!)${NC}"
-    echo ""
-    echo -e "  ${WHITE}OTHER SUPPORTED VPNs:${NC}"
-    echo ""
-    echo -e "    ${GRAY}4. Other VPN provider${NC}"
-    echo ""
-    echo -ne "  ${YELLOW}Select (1-4) [default: 1]: ${NC}"
-    read -r choice
-
-    # Reset optional vars
-    VPN_AFFILIATE=""
-    VPN_BONUS=""
-    VPN_URL=""
-
-    case "$choice" in
-        2)
-            VPN_PROVIDER="protonvpn"
-            VPN_NAME="ProtonVPN"
-            VPN_AFFILIATE="https://protonvpn.tomspark.tech/"
-            VPN_BONUS="3 months FREE"
-            SUPPORTS_WIREGUARD=true
-            ;;
-        3)
-            VPN_PROVIDER="surfshark"
-            VPN_NAME="Surfshark"
-            VPN_AFFILIATE="https://surfshark.tomspark.tech/"
-            VPN_BONUS="3 extra months FREE"
-            SUPPORTS_WIREGUARD=true
-            ;;
-        4)
-            get_other_vpn_provider
-            ;;
-        *)
-            VPN_PROVIDER="nordvpn"
-            VPN_NAME="NordVPN"
-            VPN_URL="https://my.nordaccount.com/dashboard/nordvpn/manual-configuration/"
-            VPN_AFFILIATE="https://nordvpn.tomspark.tech/"
-            VPN_BONUS="4 extra months FREE"
-            SUPPORTS_WIREGUARD=false
-            VPN_TYPE="openvpn"
-            ;;
-    esac
-
-    # Ask ProtonVPN users about free vs paid tier
-    FREE_ONLY="off"
-    if [[ "$VPN_PROVIDER" == "protonvpn" ]]; then
-        echo ""
-        echo -e "  ${WHITE}Are you on the ProtonVPN Free plan?${NC}"
-        echo ""
-        echo -e "    ${GREEN}1. Paid${NC}   ${GRAY}(Plus, Unlimited, Visionary)${NC}"
-        echo -e "    ${CYAN}2. Free${NC}   ${GRAY}(limited countries, no port forwarding)${NC}"
-        echo ""
-        echo -ne "  ${YELLOW}Select (1-2) [default: 1]: ${NC}"
-        read -r tier_choice
-        if [[ "$tier_choice" == "2" ]]; then
-            FREE_ONLY="on"
-            echo ""
-            write_info "Free tier selected. Only free servers will be used."
-        fi
-    fi
-
-    echo ""
-    write_success "Selected: $VPN_NAME"
-}
-
-get_other_vpn_provider() {
-    write_banner
-    echo -e "  ${MAGENTA}OTHER VPN PROVIDERS${NC}"
-    echo -e "  ${DARKGRAY}-------------------${NC}"
-    echo ""
-    echo -e "  ${WHITE}Select your VPN provider:${NC}"
-    echo ""
-    echo -e "    ${WHITE} 1. Mullvad${NC}"
-    echo -e "    ${WHITE} 2. Private Internet Access (PIA)${NC}"
-    echo -e "    ${WHITE} 3. Windscribe${NC}"
-    echo -e "    ${WHITE} 4. CyberGhost${NC}"
-    echo -e "    ${WHITE} 5. IPVanish${NC}"
-    echo -e "    ${WHITE} 6. AirVPN${NC}"
-    echo -e "    ${WHITE} 7. Custom (any Gluetun-supported provider)${NC}"
-    echo ""
-    echo -ne "  ${YELLOW}Select (1-7) [default: 1]: ${NC}"
-    read -r other_choice
-
-    case "$other_choice" in
-        2)
-            VPN_PROVIDER="private internet access"
-            VPN_NAME="Private Internet Access"
-            SUPPORTS_WIREGUARD=true
-            ;;
-        3)
-            VPN_PROVIDER="windscribe"
-            VPN_NAME="Windscribe"
-            SUPPORTS_WIREGUARD=true
-            ;;
-        4)
-            VPN_PROVIDER="cyberghost"
-            VPN_NAME="CyberGhost"
-            SUPPORTS_WIREGUARD=true
-            ;;
-        5)
-            VPN_PROVIDER="ipvanish"
-            VPN_NAME="IPVanish"
-            SUPPORTS_WIREGUARD=false
-            VPN_TYPE="openvpn"
-            ;;
-        6)
-            VPN_PROVIDER="airvpn"
-            VPN_NAME="AirVPN"
-            SUPPORTS_WIREGUARD=true
-            ;;
-        7)
-            echo ""
-            echo -e "  ${WHITE}Enter the Gluetun provider name exactly as listed at:${NC}"
-            echo -e "  ${CYAN}https://github.com/qdm12/gluetun-wiki/tree/main/setup/providers${NC}"
-            echo ""
-            echo -ne "  ${YELLOW}Provider name: ${NC}"
-            read -r VPN_PROVIDER
-            VPN_NAME="$VPN_PROVIDER"
-            echo ""
-            echo -ne "  ${YELLOW}Does this provider support WireGuard? (Y/N) [default: N]: ${NC}"
-            read -r wg_response
-            if [[ "$wg_response" =~ ^[Yy]$ ]]; then
-                SUPPORTS_WIREGUARD=true
-            else
-                SUPPORTS_WIREGUARD=false
-                VPN_TYPE="openvpn"
-            fi
-            ;;
-        *)
-            VPN_PROVIDER="mullvad"
-            VPN_NAME="Mullvad"
-            SUPPORTS_WIREGUARD=true
-            ;;
-    esac
-}
-
-# --- VPN Protocol Selection (ProtonVPN/Surfshark only) ---
-get_vpn_protocol() {
-    if [[ "$SUPPORTS_WIREGUARD" != "true" ]]; then
-        VPN_TYPE="openvpn"
-        return
-    fi
-
-    write_banner
-    echo -e "  ${MAGENTA}STEP 1b: CHOOSE VPN PROTOCOL${NC}"
-    echo -e "  ${DARKGRAY}----------------------------${NC}"
-    echo ""
-    echo -e "  ${WHITE}Which protocol would you like to use?${NC}"
-    echo ""
-    echo -e "    ${GREEN}1. OpenVPN${NC}     ${GRAY}- Traditional, widely compatible${NC}"
-    echo -e "    ${CYAN}2. WireGuard${NC}   ${GRAY}- Faster, more modern (Recommended)${NC}"
-    echo ""
-    echo -ne "  ${YELLOW}Select (1-2) [default: 1]: ${NC}"
-    read -r protocol_choice
-
-    case "$protocol_choice" in
-        2)
-            VPN_TYPE="wireguard"
-            case "$VPN_PROVIDER" in
-                protonvpn) VPN_URL="https://account.proton.me/u/0/vpn/WireGuard" ;;
-                surfshark) VPN_URL="https://my.surfshark.com/vpn/manual-setup/main/wireguard" ;;
-            esac
-            ;;
-        *)
-            VPN_TYPE="openvpn"
-            case "$VPN_PROVIDER" in
-                protonvpn) VPN_URL="https://account.proton.me/u/0/vpn/OpenVpnIKEv2" ;;
-                surfshark) VPN_URL="https://my.surfshark.com/vpn/manual-setup/main/openvpn" ;;
-            esac
-            ;;
-    esac
-
-    echo ""
-    write_success "Selected: $VPN_TYPE"
-}
-
-# --- Credential Collection ---
-get_vpn_credentials() {
-    write_banner
-
-    if [[ "$VPN_TYPE" == "wireguard" ]]; then
-        echo -e "  ${MAGENTA}STEP 2: WIREGUARD CREDENTIALS${NC}"
-        echo -e "  ${DARKGRAY}-----------------------------${NC}"
-        echo ""
-        write_warning "You need your WireGuard configuration from $VPN_NAME"
-        echo ""
-        echo -e "  ${WHITE}You can paste EITHER:${NC}"
-        echo -e "  ${CYAN}  Option A:${NC} ${WHITE}The entire WireGuard config block${NC} ${GRAY}(we'll extract what we need)${NC}"
-        echo -e "  ${CYAN}  Option B:${NC} ${WHITE}Just the Private Key value${NC}"
-        echo ""
-        echo -e "  ${WHITE}How to get them:${NC}"
-        if [[ -n "$VPN_URL" ]]; then
-            echo -e "  ${GRAY}1. Go to: ${CYAN}${VPN_URL}${NC}"
-        else
-            echo -e "  ${GRAY}1. Log in to your ${WHITE}${VPN_NAME}${GRAY} account${NC}"
-            echo -e "  ${GRAY}   Find the manual/service credentials or WireGuard config page${NC}"
-        fi
-        echo -e "  ${GRAY}2. Generate a new WireGuard configuration${NC}"
-        echo -e "  ${GRAY}3. Copy the config or just the Private Key and Address${NC}"
-        echo ""
-
-        if [[ -n "$VPN_AFFILIATE" ]]; then
-            echo -e "  ${GREEN}Don't have ${VPN_NAME}? Get ${VPN_BONUS}!${NC}"
-            echo -e "  ${CYAN}${VPN_AFFILIATE}${NC}"
-            echo ""
-        fi
-
-        if [[ -n "$VPN_URL" ]]; then
-            if ask_yes_no "Open $VPN_NAME WireGuard page in your browser now?"; then
-                open_url "$VPN_URL"
-                echo ""
-                write_info "Browser opened. Generate a config, then copy the Private Key and Address."
-                press_enter
-            fi
-        fi
-
-        echo ""
-        echo -e "  ${DARKGRAY}TIP: Ctrl+V may not paste here. Use right-click or Shift+Insert to paste.${NC}"
-        echo ""
-        echo -e "  ${WHITE}Paste your WireGuard Private Key (or full .conf file contents).${NC}"
-        echo -e "  ${DARKGRAY}Tip: Pasting just the Private Key value is easiest.${NC}"
-        echo ""
-        echo -ne "  ${YELLOW}> ${NC}"
-        read -r first_line
-
-        # Strip carriage returns from first line (CMD/WSL paste adds \r)
-        first_line="${first_line//$'\r'/}"
-
-        # Check if user pasted a full config block (starts with [Interface] or comment)
-        if [[ "$first_line" == "["* ]] || [[ "$first_line" == "#"* ]]; then
-            # Detected config block - read remaining lines WITHOUT any echo first
-            WIREGUARD_PRIVATE_KEY=""
-            WIREGUARD_ADDRESSES=""
-            for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-                if ! read -r -t 10 line; then
-                    [[ -z "$line" ]] && break
-                fi
-                line="${line//$'\r'/}"
-                [[ "$line" == "["* && "$line" != "[Interface]" ]] && break
-                if [[ "$line" == PrivateKey* ]]; then
-                    WIREGUARD_PRIVATE_KEY="${line#*= }"
-                fi
-                if [[ "$line" == Address* ]]; then
-                    WIREGUARD_ADDRESSES="${line#*= }"
-                fi
-                [[ -n "$WIREGUARD_PRIVATE_KEY" && -n "$WIREGUARD_ADDRESSES" ]] && break
-            done
-            # Drain remaining pasted lines
-            while read -r -t 2 _; do :; done
-
-            # Trim whitespace
-            WIREGUARD_PRIVATE_KEY="${WIREGUARD_PRIVATE_KEY%% }"
-            WIREGUARD_PRIVATE_KEY="${WIREGUARD_PRIVATE_KEY## }"
-            WIREGUARD_ADDRESSES="${WIREGUARD_ADDRESSES%% }"
-            WIREGUARD_ADDRESSES="${WIREGUARD_ADDRESSES## }"
-
-            if [[ -n "$WIREGUARD_PRIVATE_KEY" && -n "$WIREGUARD_ADDRESSES" ]]; then
-                echo ""
-                write_success "Extracted from config:"
-                echo -e "    ${WHITE}Private Key: ${CYAN}${WIREGUARD_PRIVATE_KEY:0:10}...${NC}"
-                echo -e "    ${WHITE}Address:     ${CYAN}${WIREGUARD_ADDRESSES}${NC}"
-            else
-                # Auto-extract failed - drain stdin thoroughly then ask manually
-                echo ""
-                write_warning "Could not auto-extract from config. Please enter values separately."
-                echo -e "  ${GRAY}From your .conf file, copy the value after 'PrivateKey = '${NC}"
-                echo -e "  ${GRAY}(It's a long base64 string, e.g. yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=)${NC}"
-                echo ""
-                # Wait for any in-flight paste data to arrive, then drain it
-                sleep 3
-                while read -r -t 1 _; do :; done
-                echo -ne "  ${YELLOW}WG Private Key: ${NC}"
-                read -r WIREGUARD_PRIVATE_KEY
-                WIREGUARD_PRIVATE_KEY="${WIREGUARD_PRIVATE_KEY//$'\r'/}"
-                echo -ne "  ${YELLOW}WG Address (e.g., 10.2.0.2/32): ${NC}"
-                read -r WIREGUARD_ADDRESSES
-                WIREGUARD_ADDRESSES="${WIREGUARD_ADDRESSES//$'\r'/}"
-            fi
-        else
-            # User pasted just the private key directly
-            WIREGUARD_PRIVATE_KEY="$first_line"
-
-            echo -ne "  ${YELLOW}Enter your WireGuard Address (e.g., 10.2.0.2/32): ${NC}"
-            read -r WIREGUARD_ADDRESSES
-        fi
-
-        # Trim whitespace
-        WIREGUARD_PRIVATE_KEY=$(echo "$WIREGUARD_PRIVATE_KEY" | xargs)
-        WIREGUARD_ADDRESSES=$(echo "$WIREGUARD_ADDRESSES" | xargs)
-
-        if [[ -z "$WIREGUARD_PRIVATE_KEY" || -z "$WIREGUARD_ADDRESSES" ]]; then
-            write_error "Private Key and Address cannot be empty!"
-            return 1
-        fi
-
-        # Clear OpenVPN vars since we're using WireGuard
-        VPN_USERNAME=""
-        VPN_PASSWORD=""
-    else
-        echo -e "  ${MAGENTA}STEP 2: VPN CREDENTIALS${NC}"
-        echo -e "  ${DARKGRAY}-----------------------${NC}"
-        echo ""
-        write_warning "You need $VPN_NAME 'Service Credentials' (NOT your email/password!)"
-        echo ""
-        echo -e "  ${WHITE}How to get them:${NC}"
-        if [[ -n "$VPN_URL" ]]; then
-            echo -e "  ${GRAY}1. Go to: ${CYAN}${VPN_URL}${NC}"
-        else
-            echo -e "  ${GRAY}1. Log in to your ${WHITE}${VPN_NAME}${GRAY} account${NC}"
-            echo -e "  ${GRAY}   Find the manual/service credentials or OpenVPN setup page${NC}"
-        fi
-        echo -e "  ${GRAY}2. Look for 'Manual Setup' or 'OpenVPN' credentials${NC}"
-        echo -e "  ${GRAY}3. Copy the Username and Password shown there${NC}"
-        echo ""
-
-        if [[ -n "$VPN_AFFILIATE" ]]; then
-            echo -e "  ${GREEN}Don't have ${VPN_NAME}? Get ${VPN_BONUS}!${NC}"
-            echo -e "  ${CYAN}${VPN_AFFILIATE}${NC}"
-            echo ""
-        fi
-
-        if [[ -n "$VPN_URL" ]]; then
-            if ask_yes_no "Open $VPN_NAME credential page in your browser now?"; then
-                open_url "$VPN_URL"
-                echo ""
-                write_info "Browser opened. Copy your credentials, then come back here."
-                press_enter
-            fi
-        fi
-
-        echo ""
-        echo -e "  ${DARKGRAY}TIP: Ctrl+V may not paste here. Use right-click or Shift+Insert to paste.${NC}"
-        echo ""
-        echo -ne "  ${YELLOW}Enter your Service Username: ${NC}"
-        read -r VPN_USERNAME
-
-        echo -ne "  ${YELLOW}Enter your Service Password: ${NC}"
-        read -rs VPN_PASSWORD
-        echo ""
-
-        if [[ -z "$VPN_USERNAME" || -z "$VPN_PASSWORD" ]]; then
-            write_error "Username and password cannot be empty!"
-            return 1
-        fi
-
-        # Clear WireGuard vars since we're using OpenVPN
-        WIREGUARD_PRIVATE_KEY=""
-        WIREGUARD_ADDRESSES=""
-    fi
-
-    return 0
-}
-
-get_server_country() {
-    write_banner
-    echo -e "  ${MAGENTA}STEP 3: SERVER LOCATION${NC}"
-    echo -e "  ${DARKGRAY}-----------------------${NC}"
-    echo ""
-    echo -e "  ${YELLOW}Pick the closest country to you for best speeds!${NC}"
-    echo -e "  ${GRAY}(Your VPN's no-logs policy protects you on ANY server)${NC}"
-    echo ""
-    echo -e "  ${WHITE}Popular choices:${NC}"
-    echo -e "    ${GRAY}1. United States${NC}"
-    echo -e "    ${GRAY}2. United Kingdom${NC}"
-    echo -e "    ${GRAY}3. Canada${NC}"
-    echo -e "    ${GRAY}4. Netherlands${NC}"
-    echo -e "    ${GRAY}5. Custom${NC}"
-    echo ""
-    echo -ne "  ${YELLOW}Select (1-5) [default: 1]: ${NC}"
-    read -r choice
-
-    case "$choice" in
-        2) SERVER_COUNTRY="United Kingdom" ;;
-        3) SERVER_COUNTRY="Canada" ;;
-        4) SERVER_COUNTRY="Netherlands" ;;
-        5)
-            echo -ne "  ${YELLOW}Enter country name (capitalize first letter): ${NC}"
-            read -r SERVER_COUNTRY
-            ;;
-        *) SERVER_COUNTRY="United States" ;;
-    esac
-}
-
 get_timezone() {
     write_banner
-    echo -e "  ${MAGENTA}STEP 4: TIMEZONE${NC}"
+    echo -e "  ${MAGENTA}STEP 1: TIMEZONE${NC}"
     echo -e "  ${DARKGRAY}----------------${NC}"
     echo ""
     echo -e "  ${WHITE}Common timezones:${NC}"
@@ -651,48 +256,12 @@ sanitize_env_value() {
 create_env_file() {
     cat > "$SCRIPT_DIR/.env" << EOF
 # ==========================================
-# TOM SPARK'S PRIVACY BOX CONFIG
+# TOM SPARK'S PRIVACY BOX CONFIG (No-VPN edition)
 # Created by Tom Spark | youtube.com/@TomSparkReviews
-#
-# VPN: ${VPN_NAME} (${VPN_AFFILIATE})
-# Protocol: ${VPN_TYPE}
 # ==========================================
 
-# --- VPN PROVIDER ---
-VPN_PROVIDER=${VPN_PROVIDER}
-
-# --- VPN PROTOCOL ---
-# Options: openvpn, wireguard
-VPN_TYPE=${VPN_TYPE}
-
-# --- VPN CREDENTIALS ---
-# Credentials from: ${VPN_URL}
-EOF
-
-    if [[ "$VPN_TYPE" == "wireguard" ]]; then
-        cat >> "$SCRIPT_DIR/.env" << EOF
-# WireGuard Configuration
-WIREGUARD_PRIVATE_KEY="$(sanitize_env_value "$WIREGUARD_PRIVATE_KEY")"
-WIREGUARD_ADDRESSES="$(sanitize_env_value "$WIREGUARD_ADDRESSES")"
-EOF
-    else
-        cat >> "$SCRIPT_DIR/.env" << EOF
-# OpenVPN Service Credentials
-VPN_USER="$(sanitize_env_value "$VPN_USERNAME")"
-VPN_PASSWORD="$(sanitize_env_value "$VPN_PASSWORD")"
-EOF
-    fi
-
-    cat >> "$SCRIPT_DIR/.env" << EOF
-
-# --- SERVER LOCATION ---
-SERVER_COUNTRIES=$(sanitize_env_value "$SERVER_COUNTRY")
-
-# --- FREE TIER (ProtonVPN only) ---
-FREE_ONLY=${FREE_ONLY}
-
 # --- SYSTEM SETTINGS ---
-TZ=${TIMEZONE}
+TZ=$(sanitize_env_value "$TIMEZONE")
 ROOT_DIR=.
 EOF
 }
@@ -716,20 +285,25 @@ start_privacy_box() {
     docker compose up -d </dev/null 2>&1 | sed 's/^/      /'
 
     echo ""
-    write_step "3" "Waiting for VPN to connect..."
+    write_step "3" "Waiting for containers to start..."
 
+    core_containers=(qbittorrent prowlarr sonarr radarr jellyfin)
     max_attempts=30
     attempt=0
-    connected=false
+    all_running=false
 
-    while [[ $attempt -lt $max_attempts ]] && [[ "$connected" == "false" ]]; do
+    while [[ $attempt -lt $max_attempts ]] && [[ "$all_running" == "false" ]]; do
         sleep 2
         ((attempt++))
 
-        health=$(docker inspect --format='{{.State.Health.Status}}' gluetun 2>/dev/null)
-        if [[ "$health" == "healthy" ]]; then
-            connected=true
-        fi
+        all_running=true
+        for c in "${core_containers[@]}"; do
+            state=$(docker inspect --format='{{.State.Status}}' "$c" 2>/dev/null)
+            if [[ "$state" != "running" ]]; then
+                all_running=false
+                break
+            fi
+        done
 
         echo -ne "${YELLOW}.${NC}"
     done
@@ -737,18 +311,18 @@ start_privacy_box() {
     echo ""
     echo ""
 
-    if [[ "$connected" == "true" ]]; then
-        ip=$(docker logs gluetun </dev/null 2>&1 | grep "Public IP address is" | tail -1 | sed 's/.*Public IP address is //' | cut -d' ' -f1)
-        if [[ -n "$ip" ]]; then
-            write_success "VPN Connected! Your IP: $ip"
-        else
-            write_success "VPN Connected!"
-        fi
+    if [[ "$all_running" == "true" ]]; then
+        write_success "All core containers are running!"
+        for c in "${core_containers[@]}"; do
+            health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}running{{end}}' "$c" 2>/dev/null)
+            [[ "$health" == "starting" ]] && health="running (still warming up)"
+            echo -e "      ${GRAY}${c}: ${health}${NC}"
+        done
         return 0
     else
-        write_error "VPN connection timed out. Checking logs..."
+        write_error "Some containers did not start in time."
         echo ""
-        docker logs gluetun </dev/null 2>&1 | grep -E "AUTH_FAILED|error|Error" | tail -5 | sed 's/^/      /'
+        docker compose ps </dev/null 2>&1 | sed 's/^/      /'
         return 1
     fi
 }
@@ -758,8 +332,8 @@ show_setup_guide() {
     # --- qBittorrent Setup ---
     show_beginner_tip "What is qBittorrent?" \
 "qBittorrent is a download client for torrents. Think
-of it like a download manager. All of its traffic goes
-through the VPN tunnel so your ISP never sees it."
+of it like a download manager. Sonarr, Radarr and Lidarr
+hand it the files to fetch."
     write_banner
     echo -e "  ${MAGENTA}SETUP GUIDE: qBittorrent (Step 1 of 4)${NC}"
     echo -e "  ${DARKGRAY}--------------------------------------${NC}"
@@ -790,11 +364,6 @@ through the VPN tunnel so your ISP never sees it."
     echo ""
     echo -e "  ${YELLOW}After logging in, change your password:${NC}"
     echo -e "    ${GRAY}Tools > Options > Web UI > Password${NC}"
-    echo ""
-    echo -e "  ${WHITE} VPN VERIFICATION ${NC}"
-    echo -e "  ${WHITE}Go to: Tools > Options > Advanced${NC}"
-    echo -e "  ${WHITE}Look for 'Network Interface' - it should say: ${GREEN}tun0${NC}"
-    echo -e "  ${GRAY}This proves your traffic is going through the VPN tunnel!${NC}"
 
     press_enter
 
@@ -850,7 +419,7 @@ qBittorrent, and organize them into neat folders."
     echo -e "  ${YELLOW}3. Add Download Client:${NC}"
     echo -e "     ${WHITE}- Go to: Settings > Download Clients${NC}"
     echo -e "     ${WHITE}- Click '+' and select 'qBittorrent'${NC}"
-    echo -e "     ${WHITE}- Host: ${CYAN}localhost${NC}"
+    echo -e "     ${WHITE}- Host: ${CYAN}qbittorrent${NC}"
     echo -e "     ${WHITE}- Port: ${CYAN}8080${NC}"
     echo -e "     ${WHITE}- Username: ${CYAN}admin${NC}"
     echo -e "     ${WHITE}- Password: ${CYAN}(your qBittorrent password)${NC}"
@@ -886,7 +455,7 @@ them automatically."
     echo -e "  ${YELLOW}3. Add Download Client (same as Sonarr):${NC}"
     echo -e "     ${WHITE}- Go to: Settings > Download Clients${NC}"
     echo -e "     ${WHITE}- Click '+' and select 'qBittorrent'${NC}"
-    echo -e "     ${WHITE}- Host: ${CYAN}localhost${NC}"
+    echo -e "     ${WHITE}- Host: ${CYAN}qbittorrent${NC}"
     echo -e "     ${WHITE}- Port: ${CYAN}8080${NC}"
     echo -e "     ${WHITE}- Username/Password: same as before${NC}"
     echo -e "     ${WHITE}- Click 'Test' then 'Save'${NC}"
@@ -910,22 +479,22 @@ them automatically."
     echo ""
     echo -e "  ${WHITE}Add Sonarr:${NC}"
     echo -e "    ${GRAY}- Click '+' and select 'Sonarr'${NC}"
-    echo -e "    ${GRAY}- Prowlarr Server: ${CYAN}http://localhost:9696${NC}"
-    echo -e "    ${GRAY}- Sonarr Server: ${CYAN}http://localhost:8989${NC}"
+    echo -e "    ${GRAY}- Prowlarr Server: ${CYAN}http://prowlarr:9696${NC}"
+    echo -e "    ${GRAY}- Sonarr Server: ${CYAN}http://sonarr:8989${NC}"
     echo -e "    ${GRAY}- API Key: ${CYAN}(paste the Sonarr API key you copied)${NC}"
     echo -e "    ${GRAY}- Click 'Test' then 'Save'${NC}"
     echo ""
     echo -e "  ${WHITE}Add Radarr:${NC}"
     echo -e "    ${GRAY}- Click '+' and select 'Radarr'${NC}"
-    echo -e "    ${GRAY}- Prowlarr Server: ${CYAN}http://localhost:9696${NC}"
-    echo -e "    ${GRAY}- Radarr Server: ${CYAN}http://localhost:7878${NC}"
+    echo -e "    ${GRAY}- Prowlarr Server: ${CYAN}http://prowlarr:9696${NC}"
+    echo -e "    ${GRAY}- Radarr Server: ${CYAN}http://radarr:7878${NC}"
     echo -e "    ${GRAY}- API Key: ${CYAN}(paste the Radarr API key you copied)${NC}"
     echo -e "    ${GRAY}- Click 'Test' then 'Save'${NC}"
     echo ""
     echo -e "  ${GRAY}If you enabled Lidarr, add it too:${NC}"
     echo -e "    ${GRAY}- Click '+' and select 'Lidarr'${NC}"
-    echo -e "    ${GRAY}- Prowlarr Server: ${CYAN}http://localhost:9696${NC}"
-    echo -e "    ${GRAY}- Lidarr Server: ${CYAN}http://localhost:8686${NC}"
+    echo -e "    ${GRAY}- Prowlarr Server: ${CYAN}http://prowlarr:9696${NC}"
+    echo -e "    ${GRAY}- Lidarr Server: ${CYAN}http://lidarr:8686${NC}"
     echo -e "    ${GRAY}- API Key: ${CYAN}(from Lidarr > Settings > General)${NC}"
     echo -e "    ${GRAY}- Click 'Test' then 'Save'${NC}"
 
@@ -1004,23 +573,7 @@ browser. It's completely free and open-source."
     echo -e "  ${WHITE}Want to access your media outside your home (hotel, work, etc.)?${NC}"
     echo -e "  ${GRAY}Use a secure mesh network - NO port forwarding needed!${NC}"
     echo ""
-    echo -e "  ${WHITE} OPTION 1: NordVPN Meshnet (You already have NordVPN!) ${NC}"
-    echo ""
-    echo -e "  ${YELLOW}On this computer:${NC}"
-    echo -e "    ${WHITE}1. Install NordVPN app: ${CYAN}https://nordvpn.com/download/${NC}"
-    echo -e "    ${WHITE}2. Sign in and go to 'Meshnet' in the left sidebar${NC}"
-    echo -e "    ${WHITE}3. Turn ON Meshnet${NC}"
-    echo -e "    ${WHITE}4. Note your device's Meshnet name (e.g., my-pc.nord)${NC}"
-    echo ""
-    echo -e "  ${YELLOW}On your phone/laptop (when away from home):${NC}"
-    echo -e "    ${WHITE}1. Install NordVPN app and sign in with same account${NC}"
-    echo -e "    ${WHITE}2. Go to Meshnet and turn it ON${NC}"
-    echo -e "    ${WHITE}3. Your PC will appear under 'Your devices'${NC}"
-    echo -e "    ${WHITE}4. Open Jellyfin/Emby app and connect to:${NC}"
-    echo -e "       ${CYAN}http://your-pc-name.nord:8096${NC} ${GRAY}(Jellyfin)${NC}"
-    echo -e "       ${CYAN}http://your-pc-name.nord:8920${NC} ${GRAY}(Emby)${NC}"
-    echo ""
-    echo -e "  ${WHITE} OPTION 2: Tailscale (Free alternative) ${NC}"
+    echo -e "  ${WHITE} RECOMMENDED: Tailscale (Free) ${NC}"
     echo ""
     echo -e "  ${YELLOW}On this computer:${NC}"
     echo -e "    ${WHITE}1. Download Tailscale: ${CYAN}https://tailscale.com/download${NC}"
@@ -1034,9 +587,8 @@ browser. It's completely free and open-source."
     echo ""
     echo -e "  ${WHITE} WHY THIS IS SAFE ${NC}"
     echo ""
-    echo -e "  ${GRAY}Both options create an encrypted tunnel directly between your devices.${NC}"
+    echo -e "  ${GRAY}Tailscale creates an encrypted tunnel directly between your devices.${NC}"
     echo -e "  ${GRAY}Nothing is exposed to the internet - no hackers can find your server!${NC}"
-    echo -e "  ${GRAY}This does NOT interfere with your torrent VPN (that runs in Docker).${NC}"
 
     press_enter
 
@@ -1064,7 +616,7 @@ browser. It's completely free and open-source."
     echo -e "  ${YELLOW}Your media folder:${NC}"
     echo -e "    ${GRAY}${SCRIPT_DIR}/media/${NC}"
     echo ""
-    echo -e "  ${GREEN}Your traffic is now secured through the VPN!${NC}"
+    echo -e "  ${GREEN}Your media server is up and running!${NC}"
     echo ""
     echo -e "  ${DARKGRAY}=============================================${NC}"
     echo -e "  ${YELLOW}IS IT RUNNING?${NC}"
@@ -1081,11 +633,6 @@ browser. It's completely free and open-source."
     echo -e "  ${CYAN}=============================================${NC}"
     echo -e "  ${YELLOW}Created by TOM SPARK${NC}"
     echo -e "  ${WHITE}Subscribe: youtube.com/@TomSparkReviews${NC}"
-    echo ""
-    echo -e "  ${WHITE}VPN Deals:${NC}"
-    echo -e "    ${GREEN}NordVPN:   nordvpn.tomspark.tech   (4 extra months FREE!)${NC}"
-    echo -e "    ${CYAN}ProtonVPN: protonvpn.tomspark.tech (3 months FREE!)${NC}"
-    echo -e "    ${YELLOW}Surfshark: surfshark.tomspark.tech (3 extra months FREE!)${NC}"
     echo -e "  ${CYAN}=============================================${NC}"
     echo ""
     echo -e "  ${YELLOW}Questions? Join the Discord!${NC}"
@@ -1178,11 +725,11 @@ setup_notifiarr() {
     echo -e "  ${YELLOW}In Notifiarr web UI:${NC}"
     echo -e "    ${WHITE}1. Go to 'Starr Apps' in the menu${NC}"
     echo -e "    ${WHITE}2. Enable Radarr and add:${NC}"
-    echo -e "       ${GRAY}- URL: ${CYAN}http://localhost:7878${NC}"
+    echo -e "       ${GRAY}- URL: ${CYAN}http://radarr:7878${NC}"
     echo -e "       ${GRAY}- API Key: ${CYAN}(from Radarr > Settings > General)${NC}"
     echo ""
     echo -e "    ${WHITE}3. Enable Sonarr and add:${NC}"
-    echo -e "       ${GRAY}- URL: ${CYAN}http://localhost:8989${NC}"
+    echo -e "       ${GRAY}- URL: ${CYAN}http://sonarr:8989${NC}"
     echo -e "       ${GRAY}- API Key: ${CYAN}(from Sonarr > Settings > General)${NC}"
     echo ""
     echo -e "  ${YELLOW}On notifiarr.com website:${NC}"
@@ -1354,7 +901,7 @@ setup_lidarr() {
     echo -e "  ${YELLOW}3. Add Download Client:${NC}"
     echo -e "     ${WHITE}- Go to: Settings > Download Clients${NC}"
     echo -e "     ${WHITE}- Click '+' and select 'qBittorrent'${NC}"
-    echo -e "     ${WHITE}- Host: ${CYAN}localhost${NC}"
+    echo -e "     ${WHITE}- Host: ${CYAN}qbittorrent${NC}"
     echo -e "     ${WHITE}- Port: ${CYAN}8080${NC}"
     echo -e "     ${WHITE}- Username: ${CYAN}admin${NC}"
     echo -e "     ${WHITE}- Password: ${CYAN}(your qBittorrent password)${NC}"
@@ -1368,8 +915,8 @@ setup_lidarr() {
     echo -e "     ${WHITE}- Open Prowlarr: ${CYAN}http://localhost:8181${NC}"
     echo -e "     ${WHITE}- Go to: Settings > Apps${NC}"
     echo -e "     ${WHITE}- Click '+' and select 'Lidarr'${NC}"
-    echo -e "     ${WHITE}- Prowlarr Server: ${CYAN}http://localhost:9696${NC}"
-    echo -e "     ${WHITE}- Lidarr Server: ${CYAN}http://localhost:8686${NC}"
+    echo -e "     ${WHITE}- Prowlarr Server: ${CYAN}http://prowlarr:9696${NC}"
+    echo -e "     ${WHITE}- Lidarr Server: ${CYAN}http://lidarr:8686${NC}"
     echo -e "     ${WHITE}- API Key: ${CYAN}(paste the Lidarr API key)${NC}"
     echo -e "     ${WHITE}- Click 'Test' then 'Save'${NC}"
     echo ""
@@ -1401,19 +948,6 @@ main() {
     show_arr_overview
 
     # Collect configuration
-    show_beginner_tip "Why do you need a VPN?" \
-"Your ISP (internet provider) can see everything you
-download. A VPN encrypts your traffic so they can't.
-Only the torrent containers use the VPN — your normal
-browsing stays on your regular connection."
-    get_vpn_provider
-    get_vpn_protocol
-
-    if ! get_vpn_credentials; then
-        exit 1
-    fi
-
-    get_server_country
     get_timezone
 
     # Confirmation
@@ -1422,16 +956,6 @@ browsing stays on your regular connection."
     echo -e "  ${DARKGRAY}---------------------${NC}"
     echo ""
     echo -e "  ${WHITE}Install Path:    ${SCRIPT_DIR}${NC}"
-    echo -e "  ${WHITE}VPN Provider:    ${VPN_NAME}${NC}"
-    echo -e "  ${WHITE}VPN Protocol:    ${VPN_TYPE}${NC}"
-    if [[ "$VPN_TYPE" == "wireguard" ]]; then
-        echo -e "  ${WHITE}WG Private Key:  $(echo "$WIREGUARD_PRIVATE_KEY" | head -c 10)...${NC}"
-        echo -e "  ${WHITE}WG Address:      ${WIREGUARD_ADDRESSES}${NC}"
-    else
-        echo -e "  ${WHITE}VPN Username:    ${VPN_USERNAME}${NC}"
-        echo -e "  ${WHITE}VPN Password:    $(printf '*%.0s' $(seq 1 ${#VPN_PASSWORD}))${NC}"
-    fi
-    echo -e "  ${WHITE}Server Country:  ${SERVER_COUNTRY}${NC}"
     echo -e "  ${WHITE}Timezone:        ${TIMEZONE}${NC}"
     echo ""
 
@@ -1472,26 +996,12 @@ browsing stays on your regular connection."
         setup_lidarr
     else
         echo ""
-        write_error "Setup failed. Please check your VPN credentials."
+        write_error "Setup failed. The containers did not all start."
         echo ""
         echo -e "  ${YELLOW}Common fixes:${NC}"
-        if [[ "$VPN_TYPE" == "wireguard" ]]; then
-            echo -e "    ${WHITE}1. Make sure your WireGuard Private Key is correct${NC}"
-            echo -e "    ${WHITE}2. Verify your WireGuard Address matches the config${NC}"
-            if [[ -n "$VPN_URL" ]]; then
-                echo -e "    ${WHITE}3. Generate a new config from: ${CYAN}${VPN_URL}${NC}"
-            else
-                echo -e "    ${WHITE}3. Generate a new config from your ${VPN_NAME} account${NC}"
-            fi
-        else
-            echo -e "    ${WHITE}1. Make sure you're using 'Service Credentials' from ${VPN_NAME}${NC}"
-            echo -e "    ${WHITE}2. NOT your email/password login${NC}"
-            if [[ -n "$VPN_URL" ]]; then
-                echo -e "    ${WHITE}3. Get credentials from: ${CYAN}${VPN_URL}${NC}"
-            else
-                echo -e "    ${WHITE}3. Get credentials from your ${VPN_NAME} account${NC}"
-            fi
-        fi
+        echo -e "    ${WHITE}1. Check Docker is running and has enough disk space${NC}"
+        echo -e "    ${WHITE}2. Make sure ports 8080, 8181, 8989, 7878, 8096 and 6881 are free${NC}"
+        echo -e "    ${WHITE}3. See what went wrong: ${CYAN}docker compose logs --tail 50${NC}"
         echo ""
         echo -e "  ${GRAY}To retry, run this script again.${NC}"
     fi

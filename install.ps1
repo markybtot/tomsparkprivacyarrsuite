@@ -1,12 +1,12 @@
 # ============================================================
 # PRIVACY BOX - Web Installer
 # Created by Tom Spark | https://youtube.com/@TomSparkReviews
-# Get NordVPN: https://nordvpn.tomspark.tech/
-# Usage: irm https://raw.githubusercontent.com/loponai/tomsparkprivacyarrsuite/main/install.ps1 | iex
+# No-VPN edition. Usage:
+#   irm https://raw.githubusercontent.com/YOUR-GITHUB-USER/tomsparkprivacyarrsuite/main/install.ps1 | iex
 # ============================================================
 
-$repo = "loponai/tomsparkprivacyarrsuite"
-$branch = "main"
+$repo = if ($env:PRIVACYBOX_REPO) { $env:PRIVACYBOX_REPO } else { "YOUR-GITHUB-USER/tomsparkprivacyarrsuite" }
+$branch = if ($env:PRIVACYBOX_BRANCH) { $env:PRIVACYBOX_BRANCH } else { "main" }
 $installDir = "$env:USERPROFILE\Desktop\PrivacyServer"
 
 Write-Host ""

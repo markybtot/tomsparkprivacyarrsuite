@@ -3,9 +3,11 @@
 # PRIVACY BOX - Web Installer for Mac/Linux
 # Created by Tom Spark | https://youtube.com/@TomSparkReviews
 #
-# Run with: curl -fsSL https://raw.githubusercontent.com/loponai/tomsparkprivacyarrsuite/main/install.sh | bash
+# No-VPN edition. Run with:
+#   curl -fsSL https://raw.githubusercontent.com/YOUR-GITHUB-USER/tomsparkprivacyarrsuite/main/install.sh | bash
 #
-# Get NordVPN: https://nordvpn.tomspark.tech/ (4 extra months FREE!)
+# To install from a different repo or branch without editing this file:
+#   curl -fsSL <url-to-this-file> | PRIVACYBOX_REPO=owner/repo PRIVACYBOX_BRANCH=main bash
 # ============================================================
 
 set -e
@@ -16,7 +18,9 @@ YELLOW='\033[1;33m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-REPO_URL="https://github.com/loponai/tomsparkprivacyarrsuite/archive/refs/heads/main.zip"
+REPO="${PRIVACYBOX_REPO:-YOUR-GITHUB-USER/tomsparkprivacyarrsuite}"
+BRANCH="${PRIVACYBOX_BRANCH:-main}"
+REPO_URL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.zip"
 INSTALL_DIR="$HOME/Desktop/PrivacyServer"
 
 echo ""
@@ -24,8 +28,7 @@ echo -e "${CYAN}=====================================================${NC}"
 echo -e "${WHITE}       PRIVACY BOX - Web Installer${NC}"
 echo -e "${CYAN}=====================================================${NC}"
 echo -e "${YELLOW}       Created by TOM SPARK${NC}"
-echo -e "${WHITE}       Get NordVPN: ${CYAN}nordvpn.tomspark.tech${NC}"
-echo -e "${GREEN}       4 EXTRA MONTHS FREE + DISCOUNT${NC}"
+echo -e "${WHITE}       No-VPN edition${NC}"
 echo -e "${CYAN}=====================================================${NC}"
 echo ""
 
@@ -62,7 +65,12 @@ unzip -q "$TEMP_ZIP" -d "$TEMP_DIR"
 # Move to final location
 echo -e "${WHITE}[3/4]${NC} Installing to $INSTALL_DIR..."
 rm -rf "$INSTALL_DIR" 2>/dev/null || true
-mv "$TEMP_DIR/tomsparkprivacyarrsuite-main" "$INSTALL_DIR"
+EXTRACTED_DIR=$(find "$TEMP_DIR" -mindepth 1 -maxdepth 1 -type d | head -1)
+if [[ -z "$EXTRACTED_DIR" || ! -f "$EXTRACTED_DIR/setup.sh" ]]; then
+    echo -e "${YELLOW}[!]${NC} Download did not contain setup.sh. Check the repo: ${REPO} (${BRANCH})"
+    exit 1
+fi
+mv "$EXTRACTED_DIR" "$INSTALL_DIR"
 
 # Cleanup
 rm -f "$TEMP_ZIP"
@@ -85,9 +93,9 @@ echo -e "${YELLOW}Or I can start it for you now.${NC}"
 echo ""
 
 # Ask to run setup
-read -p "Start setup now? (Y/n): " -n 1 -r
+read -p "Start setup now? (Y/n): " -n 1 -r </dev/tty
 echo ""
 if [[ ! $REPLY =~ ^[Nn]$ ]]; then
     cd "$INSTALL_DIR"
-    ./setup.sh
+    ./setup.sh </dev/tty
 fi
