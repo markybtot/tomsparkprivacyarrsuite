@@ -300,6 +300,25 @@ wait_for_docker() {
     return 1
 }
 
+# Make sure 'docker' works in new Terminal windows on a Mac, not just in this script
+persist_docker_path() {
+    [[ "$OSTYPE" == "darwin"* ]] || return 0
+    local bin="/Applications/Docker.app/Contents/Resources/bin"
+    [[ -x "$bin/docker" ]] || return 0
+    # Already reachable without our PATH additions?
+    if env PATH="/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin" bash -c 'type -P docker' &> /dev/null; then
+        return 0
+    fi
+    local line='export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"'
+    local rc
+    for rc in "$HOME/.zprofile" "$HOME/.bash_profile"; do
+        if [[ "$rc" == *zprofile || -f "$rc" ]] && ! grep -qsF "$line" "$rc"; then
+            printf '\n# Added by Privacy Box setup so the docker command works\n%s\n' "$line" >> "$rc"
+        fi
+    done
+    write_info "Added Docker to your Terminal PATH (open a new Terminal window to use 'docker')."
+}
+
 ensure_docker() {
     write_step "1" "Checking if Docker is installed..."
 
@@ -338,6 +357,7 @@ ensure_docker() {
 
     if docker_ok; then
         write_success "Docker is running"
+        persist_docker_path
         return 0
     fi
 
@@ -362,6 +382,7 @@ ensure_docker() {
     fi
 
     write_success "Docker is running"
+    persist_docker_path
     if [[ "$USE_SUDO_DOCKER" == "true" ]]; then
         write_info "Using sudo for Docker this time. Log out and back in so 'docker' works without sudo."
     fi

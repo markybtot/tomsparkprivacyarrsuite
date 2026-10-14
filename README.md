@@ -158,6 +158,21 @@ You've probably used `localhost`. Inside the apps, use the service name (`qbitto
 ### Upgrading from the original VPN version
 Run `docker compose down --remove-orphans` first so the old `gluetun` and `jellyfin` containers are removed. Your app configs in `./config` carry over, but update any `localhost` connections inside the apps to service names as above.
 
+### "docker: command not found" on a Mac
+Docker Desktop's command isn't on your Terminal's PATH yet. Run:
+```bash
+echo 'export PATH="$PATH:/Applications/Docker.app/Contents/Resources/bin"' >> ~/.zprofile && source ~/.zprofile
+```
+
+### Locked out of Sonarr / Radarr / Prowlarr
+From the install folder (swap `sonarr` for the app you're locked out of):
+```bash
+docker compose stop sonarr
+sed -i '' 's|<AuthenticationMethod>.*</AuthenticationMethod>|<AuthenticationMethod>External</AuthenticationMethod>|' config/sonarr/config.xml
+docker compose start sonarr
+```
+On Linux use `sed -i` without the `''`. Then open the app, go to Settings > General > Security, set a new login and click Save.
+
 ### Port Already in Use
 - **Windows:** Hyper-V reserves random ports in the 9000-9999 range, which is why Prowlarr uses 8181
 - Check a port: `netstat -an | grep 8080` (Mac/Linux) or `netstat -an | findstr 8080` (Windows)
