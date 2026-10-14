@@ -157,7 +157,7 @@ show_arr_overview() {
     echo -e "  ${CYAN}│${NC} ${GREEN}Prowlarr${NC}    ${CYAN}│${NC} ${GRAY}Searches torrent sites for content${NC}       ${CYAN}│${NC}"
     echo -e "  ${CYAN}│${NC} ${GREEN}Sonarr${NC}      ${CYAN}│${NC} ${GRAY}Finds & organizes TV shows automatically${NC} ${CYAN}│${NC}"
     echo -e "  ${CYAN}│${NC} ${GREEN}Radarr${NC}      ${CYAN}│${NC} ${GRAY}Finds & organizes movies automatically${NC}   ${CYAN}│${NC}"
-    echo -e "  ${CYAN}│${NC} ${GREEN}Jellyfin${NC}    ${CYAN}│${NC} ${GRAY}Streams your media (like personal Netflix)${NC}${CYAN}│${NC}"
+    echo -e "  ${CYAN}│${NC} ${GREEN}Plex${NC}        ${CYAN}│${NC} ${GRAY}Streams your media (like personal Netflix)${NC}${CYAN}│${NC}"
     echo -e "  ${CYAN}├─────────────┼──────────────────────────────────────────┤${NC}"
     echo -e "  ${CYAN}│${NC} ${YELLOW}Optional:${NC}   ${CYAN}│${NC}                                          ${CYAN}│${NC}"
     echo -e "  ${CYAN}│${NC} ${GREEN}SABnzbd${NC}     ${CYAN}│${NC} ${GRAY}Downloads from Usenet (alternative to torrents)${NC}${CYAN}│${NC}"
@@ -167,7 +167,7 @@ show_arr_overview() {
     echo -e "  ${WHITE}How they connect:${NC}"
     echo ""
     echo -e "  ${GRAY}You search in${NC} ${GREEN}Sonarr/Radarr${NC} ${GRAY}→${NC} ${GREEN}Prowlarr${NC} ${GRAY}finds it →${NC} ${GREEN}qBittorrent${NC} ${GRAY}downloads it${NC}"
-    echo -e "  ${GRAY}→${NC} ${GREEN}Sonarr/Radarr${NC} ${GRAY}organizes it →${NC} ${GREEN}Jellyfin${NC} ${GRAY}streams it to your devices${NC}"
+    echo -e "  ${GRAY}→${NC} ${GREEN}Sonarr/Radarr${NC} ${GRAY}organizes it →${NC} ${GREEN}Plex${NC} ${GRAY}streams it to your devices${NC}"
 
     press_enter
 }
@@ -263,7 +263,75 @@ create_env_file() {
 # --- SYSTEM SETTINGS ---
 TZ=$(sanitize_env_value "$TIMEZONE")
 ROOT_DIR=.
+
+# --- PLEX ---
+# Plex claim token from https://plex.tv/claim (only used on first start)
+PLEX_CLAIM=
 EOF
+}
+
+# --- Plex claim token ---
+# Asked right before the containers start because tokens expire after 4 minutes.
+get_plex_claim() {
+    write_banner
+    echo -e "  ${MAGENTA}LINK PLEX TO YOUR PLEX ACCOUNT${NC}"
+    echo -e "  ${DARKGRAY}------------------------------${NC}"
+    echo ""
+    echo -e "  ${WHITE}A claim token links this Plex server to your Plex account.${NC}"
+    echo -e "  ${WHITE}Inside Docker it's needed for first-time setup to work reliably.${NC}"
+    echo ""
+    echo -e "  ${YELLOW}Tokens expire 4 minutes after you generate them, so get one now:${NC}"
+    echo -e "    ${WHITE}1. Go to: ${CYAN}https://plex.tv/claim${NC}"
+    echo -e "    ${WHITE}2. Sign in (or create a free Plex account)${NC}"
+    echo -e "    ${WHITE}3. Copy the token (it starts with ${CYAN}claim-${WHITE})${NC}"
+
+    if ask_yes_no "Open plex.tv/claim in your browser now?"; then
+        open_url "https://plex.tv/claim"
+    fi
+
+    echo ""
+    echo -ne "  ${YELLOW}Paste your claim token (or press ENTER to skip): ${NC}"
+    read -r PLEX_CLAIM
+    PLEX_CLAIM="${PLEX_CLAIM//$'\r'/}"
+    PLEX_CLAIM="${PLEX_CLAIM//\"/}"
+    PLEX_CLAIM="$(echo "$PLEX_CLAIM" | xargs)"
+
+    if [[ -z "$PLEX_CLAIM" ]]; then
+        write_info "Skipped. You can link Plex later (the Plex setup guide explains how)."
+        return 0
+    fi
+
+    if [[ "$PLEX_CLAIM" != claim-* ]]; then
+        write_warning "That doesn't look like a claim token (should start with 'claim-'). Using it anyway."
+    fi
+
+    set_env_value PLEX_CLAIM "$PLEX_CLAIM"
+    write_success "Claim token saved. Starting Plex now so it doesn't expire."
+}
+
+# Replace KEY=... in .env (or append it if missing)
+set_env_value() {
+    local key="$1"
+    local value
+    value="$(sanitize_env_value "$2")"
+    local env_file="$SCRIPT_DIR/.env"
+    local tmp_file="$env_file.tmp"
+    local found=false
+
+    : > "$tmp_file"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" == "$key="* ]]; then
+            printf '%s="%s"\n' "$key" "$value" >> "$tmp_file"
+            found=true
+        else
+            printf '%s\n' "$line" >> "$tmp_file"
+        fi
+    done < "$env_file"
+    if [[ "$found" == "false" ]]; then
+        printf '%s="%s"\n' "$key" "$value" >> "$tmp_file"
+    fi
+    mv "$tmp_file" "$env_file"
+    chmod 600 "$env_file"
 }
 
 # --- Docker Operations ---
@@ -279,6 +347,11 @@ start_privacy_box() {
     echo ""
     docker compose pull </dev/null 2>&1 | sed 's/^/      /'
 
+    get_plex_claim
+
+    write_banner
+    echo -e "  ${MAGENTA}LAUNCHING PRIVACY BOX${NC}"
+    echo -e "  ${DARKGRAY}---------------------${NC}"
     echo ""
     write_step "2" "Starting containers..."
     echo ""
@@ -287,7 +360,7 @@ start_privacy_box() {
     echo ""
     write_step "3" "Waiting for containers to start..."
 
-    core_containers=(qbittorrent prowlarr sonarr radarr jellyfin)
+    core_containers=(qbittorrent prowlarr sonarr radarr plex)
     max_attempts=30
     attempt=0
     all_running=false
@@ -464,6 +537,14 @@ them automatically."
     echo -e "     ${WHITE}- Go to: Settings > General${NC}"
     echo -e "     ${WHITE}- Copy the 'API Key' (you'll need this for Prowlarr)${NC}"
 
+    echo ""
+    echo -e "  ${YELLOW}5. Optional - auto-refresh Plex when downloads finish:${NC}"
+    echo -e "     ${WHITE}- In Sonarr AND Radarr go to: Settings > Connect${NC}"
+    echo -e "     ${WHITE}- Click '+' and select 'Plex Media Server'${NC}"
+    echo -e "     ${WHITE}- Host: ${CYAN}plex${WHITE}  Port: ${CYAN}32400${NC}"
+    echo -e "     ${WHITE}- Click 'Authenticate with Plex.tv', then 'Test' and 'Save'${NC}"
+    echo -e "     ${GRAY}  (Do this after the Plex setup step below.)${NC}"
+
     press_enter
 
     # --- Connect Prowlarr ---
@@ -500,67 +581,70 @@ them automatically."
 
     press_enter
 
-    # --- Jellyfin Setup ---
-    show_beginner_tip "What is Jellyfin?" \
-"Jellyfin is your personal Netflix. It streams your movies
-and TV shows to any device — phone, tablet, smart TV, or
-browser. It's completely free and open-source."
+    # --- Plex Setup ---
+    show_beginner_tip "What is Plex?" \
+"Plex is your personal Netflix. It streams your movies,
+TV shows and music to phones, smart TVs, consoles and
+browsers. The server is free to use."
     write_banner
-    echo -e "  ${MAGENTA}SETUP GUIDE: Jellyfin (Media Server)${NC}"
-    echo -e "  ${DARKGRAY}------------------------------------${NC}"
+    echo -e "  ${MAGENTA}SETUP GUIDE: Plex (Media Server)${NC}"
+    echo -e "  ${DARKGRAY}--------------------------------${NC}"
     echo ""
-    echo -e "  ${GREEN} JELLYFIN IS ALREADY INSTALLED! ${NC}"
+    echo -e "  ${GREEN} PLEX IS ALREADY INSTALLED! ${NC}"
     echo ""
-    echo -e "  ${GRAY}Jellyfin is included in your Privacy Box. Watch your media on any device!${NC}"
-    echo ""
-    echo -e "  ${YELLOW}Press ENTER to open Jellyfin in your browser...${NC}"
+    echo -e "  ${YELLOW}Press ENTER to open Plex in your browser...${NC}"
     read -r
-    open_url "http://localhost:8096"
+    open_url "http://localhost:32400/web"
     echo ""
     echo -e "  ${WHITE} STEP 1: Initial Setup ${NC}"
     echo ""
-    echo -e "  ${WHITE}1. Select your language and click Next${NC}"
-    echo -e "  ${WHITE}2. Create your admin username and password${NC}"
-    echo -e "  ${WHITE}3. Click 'Add Media Library' and add:${NC}"
+    echo -e "  ${WHITE}1. Sign in with your Plex account${NC}"
+    echo -e "  ${WHITE}2. Give your server a name${NC}"
+    echo -e "  ${WHITE}3. Tick or untick 'Allow me to access my media outside my home'${NC}"
+    echo -e "  ${WHITE}4. Click 'Add Library' and add:${NC}"
     echo ""
-    echo -e "     ${YELLOW}For Movies:${NC}"
-    echo -e "       ${GRAY}- Content type: Movies${NC}"
-    echo -e "       ${GRAY}- Click '+' next to Folders${NC}"
-    echo -e "       ${GRAY}- Enter: ${CYAN}/data/movies${NC}"
+    echo -e "     ${YELLOW}Movies:${NC}   ${GRAY}type Movies, folder ${CYAN}/data/movies${NC}"
+    echo -e "     ${YELLOW}TV Shows:${NC} ${GRAY}type TV Shows, folder ${CYAN}/data/tvshows${NC}"
+    echo -e "     ${YELLOW}Music:${NC}    ${GRAY}type Music, folder ${CYAN}/data/music${NC} ${GRAY}(if you enable Lidarr)${NC}"
     echo ""
-    echo -e "     ${YELLOW}For TV Shows:${NC}"
-    echo -e "       ${GRAY}- Content type: Shows${NC}"
-    echo -e "       ${GRAY}- Click '+' next to Folders${NC}"
-    echo -e "       ${GRAY}- Enter: ${CYAN}/data/tvshows${NC}"
+    echo -e "  ${WHITE}5. Finish the setup wizard${NC}"
     echo ""
-    echo -e "     ${YELLOW}For Music (if you enabled Lidarr):${NC}"
-    echo -e "       ${GRAY}- Content type: Music${NC}"
-    echo -e "       ${GRAY}- Click '+' next to Folders${NC}"
-    echo -e "       ${GRAY}- Enter: ${CYAN}/data/music${NC}"
+    echo -e "  ${WHITE} SERVER NOT SHOWING UP? ${NC}"
+    echo -e "  ${GRAY}This happens if the claim step was skipped or the token expired. Fix:${NC}"
+    echo -e "    ${WHITE}1. Get a fresh token: ${CYAN}https://plex.tv/claim${NC}"
+    echo -e "    ${WHITE}2. In the .env file in this folder set: ${CYAN}PLEX_CLAIM=\"claim-...\"${NC}"
+    echo -e "    ${WHITE}3. Within 4 minutes run: ${CYAN}docker compose up -d --force-recreate plex${NC}"
+
+    press_enter
+
+    write_banner
+    echo -e "  ${MAGENTA}SETUP GUIDE: Plex on Other Devices${NC}"
+    echo -e "  ${DARKGRAY}----------------------------------${NC}"
     echo ""
-    echo -e "  ${WHITE}4. Finish the setup wizard${NC}"
+    echo -e "  ${WHITE} WATCH ON OTHER DEVICES ${NC}"
     echo ""
-    echo -e "  ${WHITE} STEP 2: Watch on Other Devices ${NC}"
+    echo -e "    ${WHITE}1. Install the Plex app on your TV/phone/tablet/console${NC}"
+    echo -e "    ${WHITE}2. Sign in with the same Plex account${NC}"
+    echo -e "    ${WHITE}3. Your server appears automatically${NC}"
     echo ""
-    echo -e "  ${YELLOW}Same Network (Home WiFi):${NC}"
+    echo -e "  ${WHITE} CAN'T FIND THE SERVER ON YOUR HOME NETWORK? ${NC}"
+    echo ""
     if [[ "$OSTYPE" == "darwin"* ]]; then
         echo -e "    ${WHITE}1. Find this Mac's IP: ${CYAN}ifconfig | grep 'inet '${NC}"
     else
         echo -e "    ${WHITE}1. Find this computer's IP: ${CYAN}ip addr${NC} or ${CYAN}hostname -I${NC}"
     fi
     echo -e "       ${GRAY}Look for your local IP (e.g., 192.168.1.100)${NC}"
-    echo -e "    ${WHITE}2. On your TV/phone/tablet, download the Jellyfin app${NC}"
-    echo -e "    ${WHITE}3. Enter server address: ${CYAN}http://YOUR-IP:8096${NC}"
-    echo ""
-    echo -e "  ${WHITE} CAN'T CONNECT FROM OTHER DEVICES? ${NC}"
+    echo -e "    ${WHITE}2. In Plex: Settings > Network > Custom server access URLs${NC}"
+    echo -e "    ${WHITE}3. Enter: ${CYAN}http://YOUR-IP:32400${NC} and save"
     echo ""
     if [[ "$OSTYPE" == "darwin"* ]]; then
         echo -e "  ${YELLOW}macOS Firewall may be blocking connections:${NC}"
-        echo -e "    ${WHITE}System Preferences > Security & Privacy > Firewall > Firewall Options${NC}"
+        echo -e "    ${WHITE}System Settings > Network > Firewall > Options${NC}"
         echo -e "    ${WHITE}Add Docker or allow incoming connections${NC}"
     else
         echo -e "  ${YELLOW}Linux firewall may be blocking connections:${NC}"
-        echo -e "    ${CYAN}sudo ufw allow 8096/tcp${NC}"
+        echo -e "    ${CYAN}sudo ufw allow 32400/tcp${NC}"
     fi
 
     press_enter
@@ -571,9 +655,14 @@ browser. It's completely free and open-source."
     echo -e "  ${DARKGRAY}-----------------------------------------${NC}"
     echo ""
     echo -e "  ${WHITE}Want to access your media outside your home (hotel, work, etc.)?${NC}"
-    echo -e "  ${GRAY}Use a secure mesh network - NO port forwarding needed!${NC}"
     echo ""
-    echo -e "  ${WHITE} RECOMMENDED: Tailscale (Free) ${NC}"
+    echo -e "  ${WHITE} OPTION A: Plex Remote Access (built in) ${NC}"
+    echo ""
+    echo -e "    ${WHITE}1. In Plex: Settings > Remote Access > Enable Remote Access${NC}"
+    echo -e "    ${WHITE}2. Forward port ${CYAN}32400${WHITE} on your router to this computer${NC}"
+    echo -e "    ${WHITE}3. Use the Plex app anywhere, signed in to your account${NC}"
+    echo ""
+    echo -e "  ${WHITE} OPTION B: Tailscale (Free, no port forwarding) ${NC}"
     echo ""
     echo -e "  ${YELLOW}On this computer:${NC}"
     echo -e "    ${WHITE}1. Download Tailscale: ${CYAN}https://tailscale.com/download${NC}"
@@ -582,13 +671,13 @@ browser. It's completely free and open-source."
     echo ""
     echo -e "  ${YELLOW}On your phone/laptop:${NC}"
     echo -e "    ${WHITE}1. Install Tailscale app and sign in with same account${NC}"
-    echo -e "    ${WHITE}2. Open Jellyfin/Emby app and connect to:${NC}"
-    echo -e "       ${CYAN}http://100.x.x.x:8096${NC} ${GRAY}(use your actual Tailscale IP)${NC}"
+    echo -e "    ${WHITE}2. Open in your browser or add to the Plex app:${NC}"
+    echo -e "       ${CYAN}http://100.x.x.x:32400/web${NC} ${GRAY}(use your actual Tailscale IP)${NC}"
     echo ""
-    echo -e "  ${WHITE} WHY THIS IS SAFE ${NC}"
+    echo -e "  ${WHITE} WHICH ONE? ${NC}"
     echo ""
-    echo -e "  ${GRAY}Tailscale creates an encrypted tunnel directly between your devices.${NC}"
-    echo -e "  ${GRAY}Nothing is exposed to the internet - no hackers can find your server!${NC}"
+    echo -e "  ${GRAY}Plex Remote Access is easiest but opens port 32400 to the internet.${NC}"
+    echo -e "  ${GRAY}Tailscale creates an encrypted tunnel between your own devices and exposes nothing.${NC}"
 
     press_enter
 
@@ -604,7 +693,7 @@ browser. It's completely free and open-source."
     echo -e "    ${WHITE}Prowlarr:     http://localhost:8181${NC}"
     echo -e "    ${WHITE}Sonarr:       http://localhost:8989${NC}"
     echo -e "    ${WHITE}Radarr:       http://localhost:7878${NC}"
-    echo -e "    ${CYAN}Jellyfin:     http://localhost:8096${NC} ${GRAY}(Media Server)${NC}"
+    echo -e "    ${CYAN}Plex:         http://localhost:32400/web${NC} ${GRAY}(Media Server)${NC}"
     # Show optional services if they were enabled
     if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^sabnzbd$'; then
         echo -e "    ${WHITE}SABnzbd:      http://localhost:8085${NC} ${GRAY}(Usenet Downloads)${NC}"
@@ -860,7 +949,7 @@ setup_lidarr() {
     echo ""
     echo -e "  ${WHITE}Lidarr automatically finds, downloads, and organizes music.${NC}"
     echo -e "  ${WHITE}It works just like Sonarr/Radarr but for music albums and artists.${NC}"
-    echo -e "  ${WHITE}Your music will be available in Jellyfin for streaming!${NC}"
+    echo -e "  ${WHITE}Your music will be available in Plex for streaming!${NC}"
     echo ""
 
     if ! ask_yes_no "Would you like to enable music management (Lidarr)?"; then
@@ -1000,7 +1089,7 @@ main() {
         echo ""
         echo -e "  ${YELLOW}Common fixes:${NC}"
         echo -e "    ${WHITE}1. Check Docker is running and has enough disk space${NC}"
-        echo -e "    ${WHITE}2. Make sure ports 8080, 8181, 8989, 7878, 8096 and 6881 are free${NC}"
+        echo -e "    ${WHITE}2. Make sure ports 8080, 8181, 8989, 7878, 32400 and 6881 are free${NC}"
         echo -e "    ${WHITE}3. See what went wrong: ${CYAN}docker compose logs --tail 50${NC}"
         echo ""
         echo -e "  ${GRAY}To retry, run this script again.${NC}"

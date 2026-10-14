@@ -106,25 +106,29 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # --- Media Server (accessible on local network) ---
-  jellyfin:
-    image: lscr.io/linuxserver/jellyfin:latest
-    container_name: jellyfin
+  # --- Media Server: Plex (accessible on local network) ---
+  # PLEX_CLAIM links the server to your Plex account on first start.
+  # Get a token at https://plex.tv/claim (it expires after 4 minutes).
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+      - VERSION=docker
+      - PLEX_CLAIM=${PLEX_CLAIM:-}
     ports:
-      - 8096:8096         # Jellyfin Web UI
+      - 32400:32400       # Plex Web UI and streaming
     volumes:
-      - ./config/jellyfin:/config
+      - ./config/plex:/config
       - ./media/tv:/data/tvshows
       - ./media/movies:/data/movies
       - ./media/music:/data/music
     networks:
       - arr
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8096/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:32400/identity || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

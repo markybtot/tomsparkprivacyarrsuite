@@ -4,7 +4,7 @@
 # Created by Tom Spark | https://youtube.com/@TomSparkReviews
 #
 # No-VPN edition. Run with:
-#   curl -fsSL https://raw.githubusercontent.com/YOUR-GITHUB-USER/tomsparkprivacyarrsuite/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/markybtot/tomsparkprivacyarrsuite/main/install.sh | bash
 #
 # To install from a different repo or branch without editing this file:
 #   curl -fsSL <url-to-this-file> | PRIVACYBOX_REPO=owner/repo PRIVACYBOX_BRANCH=main bash
@@ -18,7 +18,7 @@ YELLOW='\033[1;33m'
 WHITE='\033[1;37m'
 NC='\033[0m'
 
-REPO="${PRIVACYBOX_REPO:-YOUR-GITHUB-USER/tomsparkprivacyarrsuite}"
+REPO="${PRIVACYBOX_REPO:-markybtot/tomsparkprivacyarrsuite}"
 BRANCH="${PRIVACYBOX_BRANCH:-main}"
 REPO_URL="https://github.com/${REPO}/archive/refs/heads/${BRANCH}.zip"
 INSTALL_DIR="$HOME/Desktop/PrivacyServer"

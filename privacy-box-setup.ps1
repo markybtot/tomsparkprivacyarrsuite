@@ -178,8 +178,8 @@ function Show-ArrOverview {
     Write-Host "Finds & organizes movies automatically" -ForegroundColor Gray -NoNewline
     Write-Host "   |" -ForegroundColor Cyan
     Write-Host "  | " -ForegroundColor Cyan -NoNewline
-    Write-Host "Jellyfin" -ForegroundColor Green -NoNewline
-    Write-Host "      | " -ForegroundColor Cyan -NoNewline
+    Write-Host "Plex" -ForegroundColor Green -NoNewline
+    Write-Host "          | " -ForegroundColor Cyan -NoNewline
     Write-Host "Streams your media (like personal Netflix)" -ForegroundColor Gray -NoNewline
     Write-Host "|" -ForegroundColor Cyan
     Write-Host "  +---------------+--------------------------------------------+" -ForegroundColor Cyan
@@ -212,7 +212,7 @@ function Show-ArrOverview {
     Write-Host "  -> " -ForegroundColor Gray -NoNewline
     Write-Host "Sonarr/Radarr" -ForegroundColor Green -NoNewline
     Write-Host " organizes it -> " -ForegroundColor Gray -NoNewline
-    Write-Host "Jellyfin" -ForegroundColor Green -NoNewline
+    Write-Host "Plex" -ForegroundColor Green -NoNewline
     Write-Host " streams it to your devices" -ForegroundColor Gray
 
     Press-Enter
@@ -303,6 +303,10 @@ function New-EnvFile {
 # --- SYSTEM SETTINGS ---
 TZ=$Timezone
 ROOT_DIR=.
+
+# --- PLEX ---
+# Plex claim token from https://plex.tv/claim (only used on first start)
+PLEX_CLAIM=
 "@
 
     $content | Out-File -FilePath "$Path\.env" -Encoding UTF8 -NoNewline
@@ -420,25 +424,29 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # --- Media Server (accessible on local network) ---
-  jellyfin:
-    image: lscr.io/linuxserver/jellyfin:latest
-    container_name: jellyfin
+  # --- Media Server: Plex (accessible on local network) ---
+  # PLEX_CLAIM links the server to your Plex account on first start.
+  # Get a token at https://plex.tv/claim (it expires after 4 minutes).
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
+      - VERSION=docker
+      - PLEX_CLAIM=${PLEX_CLAIM:-}
     ports:
-      - 8096:8096         # Jellyfin Web UI
+      - 32400:32400       # Plex Web UI and streaming
     volumes:
-      - ./config/jellyfin:/config
+      - ./config/plex:/config
       - ./media/tv:/data/tvshows
       - ./media/movies:/data/movies
       - ./media/music:/data/music
     networks:
       - arr
     healthcheck:
-      test: ["CMD-SHELL", "curl -fs http://localhost:8096/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fs http://localhost:32400/identity || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -527,6 +535,83 @@ services:
     $content | Out-File -FilePath "$Path\docker-compose.yml" -Encoding UTF8 -NoNewline
 }
 
+# --- Plex Claim Token ---
+function Set-PlexClaim {
+    param(
+        [string]$Path,
+        [string]$Token
+    )
+
+    $envPath = Join-Path $Path ".env"
+    if (-not (Test-Path $envPath)) {
+        return
+    }
+
+    # Keep the file's existing encoding (with or without BOM)
+    $bytes = [System.IO.File]::ReadAllBytes($envPath)
+    $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
+    $encoding = New-Object System.Text.UTF8Encoding($hasBom)
+    $text = [System.IO.File]::ReadAllText($envPath, $encoding)
+
+    $line = "PLEX_CLAIM=`"$Token`""
+    if ($text -match '(?m)^PLEX_CLAIM=.*$') {
+        $text = [regex]::Replace($text, '(?m)^PLEX_CLAIM=[^\r\n]*', { param($m) $line })
+    } else {
+        $text = $text.TrimEnd("`r", "`n") + "`n" + $line + "`n"
+    }
+
+    [System.IO.File]::WriteAllText($envPath, $text, $encoding)
+}
+
+function Get-PlexClaim {
+    param([string]$Path)
+
+    Write-Banner
+    Write-Host "  LINK PLEX TO YOUR PLEX ACCOUNT" -ForegroundColor Magenta
+    Write-Host "  ------------------------------" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  A claim token links this Plex server to your Plex account." -ForegroundColor White
+    Write-Host "  It is needed for first-time setup to work reliably in Docker." -ForegroundColor White
+    Write-Host ""
+    Write-Host "  " -NoNewline
+    Write-Host " IMPORTANT " -BackgroundColor DarkRed -ForegroundColor White
+    Write-Host "  The token expires 4 minutes after you generate it, so get it now." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  How to get it:" -ForegroundColor White
+    Write-Host "    1. Go to: " -ForegroundColor Gray -NoNewline
+    Write-Host "https://plex.tv/claim" -ForegroundColor Cyan
+    Write-Host "    2. Sign in, or create a free Plex account" -ForegroundColor Gray
+    Write-Host "    3. Copy the token shown (it starts with " -ForegroundColor Gray -NoNewline
+    Write-Host "claim-" -ForegroundColor Cyan -NoNewline
+    Write-Host ")" -ForegroundColor Gray
+    Write-Host ""
+
+    if (Ask-YesNo "Open https://plex.tv/claim in your browser now?") {
+        Start-Process "https://plex.tv/claim"
+        Write-Host ""
+        Write-Info "Browser opened. Copy the claim token, then come back here."
+    }
+
+    Write-Host ""
+    Write-Host "  Paste your Plex claim token (or press ENTER to skip): " -ForegroundColor Yellow -NoNewline
+    $token = Read-Host
+    if ($null -eq $token) { $token = "" }
+    $token = ($token -replace '[\s"]', '')
+
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        Write-Host ""
+        Write-Info "Skipped. You can link Plex later (see the Plex setup guide)."
+        return
+    }
+
+    if (-not $token.StartsWith("claim-")) {
+        Write-Warning-Custom "That doesn't look like a claim token (should start with 'claim-'). Using it anyway."
+    }
+
+    Set-PlexClaim -Path $Path -Token $token
+    Write-Success "Plex claim token saved to .env"
+}
+
 # --- Docker Operations ---
 function Start-PrivacyBox {
     param([string]$Path)
@@ -543,6 +628,8 @@ function Start-PrivacyBox {
 
     docker compose pull 2>&1 | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
 
+    Get-PlexClaim -Path $Path
+
     Write-Host ""
     Write-Step "2" "Starting containers..."
     Write-Host ""
@@ -552,7 +639,7 @@ function Start-PrivacyBox {
     Write-Host ""
     Write-Step "3" "Waiting for containers to start..."
 
-    $coreContainers = @("qbittorrent", "prowlarr", "sonarr", "radarr", "jellyfin")
+    $coreContainers = @("qbittorrent", "prowlarr", "sonarr", "radarr", "plex")
     $maxAttempts = 30
     $attempt = 0
     $allRunning = $false
@@ -794,59 +881,81 @@ them automatically."
 
     Press-Enter
 
-    # --- Jellyfin Setup ---
-    Show-BeginnerTip -Title "What is Jellyfin?" -Body "Jellyfin is your personal Netflix. It streams your movies
-and TV shows to any device — phone, tablet, smart TV, or
-browser. It's completely free and open-source."
+    # --- Plex Setup ---
+    Show-BeginnerTip -Title "What is Plex?" -Body "Plex is your personal Netflix. It streams your movies,
+TV and music to phones, smart TVs, consoles and browsers.
+It's free to use."
     Write-Banner
-    Write-Host "  SETUP GUIDE: Jellyfin (Media Server)" -ForegroundColor Magenta
-    Write-Host "  ------------------------------------" -ForegroundColor DarkGray
+    Write-Host "  SETUP GUIDE: Plex (Media Server)" -ForegroundColor Magenta
+    Write-Host "  --------------------------------" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  " -NoNewline
-    Write-Host " JELLYFIN IS ALREADY INSTALLED! " -BackgroundColor DarkGreen -ForegroundColor White
+    Write-Host " PLEX IS ALREADY INSTALLED! " -BackgroundColor DarkGreen -ForegroundColor White
     Write-Host ""
-    Write-Host "  Jellyfin is included in your Privacy Box. Watch your media on any device!" -ForegroundColor Gray
+    Write-Host "  Plex is included in your Privacy Box. Watch your media on any device!" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "  Press ENTER to open Jellyfin in your browser..." -ForegroundColor Yellow
+    Write-Host "  Press ENTER to open Plex in your browser..." -ForegroundColor Yellow
     Read-Host | Out-Null
-    Start-Process "http://localhost:8096"
+    Start-Process "http://localhost:32400/web"
     Write-Host ""
     Write-Host "  " -NoNewline
     Write-Host " STEP 1: Initial Setup " -BackgroundColor DarkBlue -ForegroundColor White
     Write-Host ""
-    Write-Host "  1. Select your language and click Next" -ForegroundColor White
-    Write-Host "  2. Create your admin username and password" -ForegroundColor White
-    Write-Host "  3. Click 'Add Media Library' and add:" -ForegroundColor White
+    Write-Host "  1. Sign in with your Plex account" -ForegroundColor White
+    Write-Host "  2. Give your server a name" -ForegroundColor White
+    Write-Host "  3. 'Allow me to access my media outside my home': tick or untick as you like" -ForegroundColor White
+    Write-Host "  4. Add your libraries:" -ForegroundColor White
     Write-Host ""
-    Write-Host "     For Movies:" -ForegroundColor Yellow
-    Write-Host "       - Content type: Movies" -ForegroundColor Gray
-    Write-Host "       - Click '+' next to Folders" -ForegroundColor Gray
-    Write-Host "       - Enter: " -ForegroundColor Gray -NoNewline
+    Write-Host "     Movies:   " -ForegroundColor Yellow -NoNewline
     Write-Host "/data/movies" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "     For TV Shows:" -ForegroundColor Yellow
-    Write-Host "       - Content type: Shows" -ForegroundColor Gray
-    Write-Host "       - Click '+' next to Folders" -ForegroundColor Gray
-    Write-Host "       - Enter: " -ForegroundColor Gray -NoNewline
+    Write-Host "     TV Shows: " -ForegroundColor Yellow -NoNewline
     Write-Host "/data/tvshows" -ForegroundColor Cyan
+    Write-Host "     Music:    " -ForegroundColor Yellow -NoNewline
+    Write-Host "/data/music" -ForegroundColor Cyan -NoNewline
+    Write-Host " (if you enabled Lidarr)" -ForegroundColor Gray
     Write-Host ""
-    Write-Host "     For Music (if you enabled Lidarr):" -ForegroundColor Yellow
-    Write-Host "       - Content type: Music" -ForegroundColor Gray
-    Write-Host "       - Click '+' next to Folders" -ForegroundColor Gray
-    Write-Host "       - Enter: " -ForegroundColor Gray -NoNewline
-    Write-Host "/data/music" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  4. Finish the setup wizard" -ForegroundColor White
+    Write-Host "  5. Finish the setup wizard" -ForegroundColor White
     Write-Host ""
     Write-Host "  " -NoNewline
-    Write-Host " STEP 2: Watch on Other Devices " -BackgroundColor DarkBlue -ForegroundColor White
+    Write-Host " SERVER NOT SHOWING UP? " -BackgroundColor DarkRed -ForegroundColor White
     Write-Host ""
-    Write-Host "  Same Network (Home WiFi):" -ForegroundColor Yellow
+    Write-Host "  This happens if the claim step was skipped or the token expired." -ForegroundColor White
+    Write-Host "    1. Get a fresh token from: " -ForegroundColor White -NoNewline
+    Write-Host "https://plex.tv/claim" -ForegroundColor Cyan
+    Write-Host "    2. In the .env file in your PrivacyServer folder, set:" -ForegroundColor White
+    Write-Host "       PLEX_CLAIM=`"claim-...`"" -ForegroundColor Cyan
+    Write-Host "    3. Within 4 minutes, run this from the PrivacyServer folder:" -ForegroundColor White
+    Write-Host "       docker compose up -d --force-recreate plex" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  " -NoNewline
+    Write-Host " OPTIONAL: Auto-refresh Plex when downloads finish " -BackgroundColor DarkBlue -ForegroundColor White
+    Write-Host ""
+    Write-Host "  In Sonarr and Radarr go to: Settings > Connect > + > Plex Media Server" -ForegroundColor White
+    Write-Host "    - Host: " -ForegroundColor Gray -NoNewline
+    Write-Host "plex" -ForegroundColor Cyan
+    Write-Host "    - Port: " -ForegroundColor Gray -NoNewline
+    Write-Host "32400" -ForegroundColor Cyan
+    Write-Host "    - Click 'Authenticate with Plex.tv', then 'Test' and 'Save'" -ForegroundColor Gray
+
+    Press-Enter
+
+    Write-Banner
+    Write-Host "  SETUP GUIDE: Plex (Watch on Other Devices)" -ForegroundColor Magenta
+    Write-Host "  ------------------------------------------" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "  " -NoNewline
+    Write-Host " WATCH ON OTHER DEVICES " -BackgroundColor DarkBlue -ForegroundColor White
+    Write-Host ""
+    Write-Host "  1. Install the Plex app on your TV/phone/tablet" -ForegroundColor White
+    Write-Host "  2. Sign in with the same Plex account" -ForegroundColor White
+    Write-Host "  3. Your server appears automatically" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Device on your home network can't find it?" -ForegroundColor Yellow
     Write-Host "    1. Find this PC's IP: Open CMD and type 'ipconfig'" -ForegroundColor White
     Write-Host "       Look for 'IPv4 Address' (e.g., 192.168.1.100)" -ForegroundColor Gray
-    Write-Host "    2. On your TV/phone/tablet, download the Jellyfin app" -ForegroundColor White
-    Write-Host "    3. Enter server address: " -ForegroundColor White -NoNewline
-    Write-Host "http://YOUR-PC-IP:8096" -ForegroundColor Cyan
+    Write-Host "    2. In Plex go to: Settings > Network > Custom server access URLs" -ForegroundColor White
+    Write-Host "    3. Enter: " -ForegroundColor White -NoNewline
+    Write-Host "http://YOUR-IP:32400" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "  " -NoNewline
     Write-Host " CAN'T CONNECT FROM OTHER DEVICES? " -BackgroundColor DarkRed -ForegroundColor White
@@ -861,10 +970,8 @@ browser. It's completely free and open-source."
     Write-Host "    5. Check BOTH 'Private' and 'Public' boxes" -ForegroundColor White
     Write-Host ""
     Write-Host "  Or allow the port directly (PowerShell as Admin):" -ForegroundColor Gray
-    Write-Host "    Jellyfin: " -ForegroundColor Gray -NoNewline
-    Write-Host "netsh advfirewall firewall add rule name=`"Jellyfin`" dir=in action=allow protocol=tcp localport=8096" -ForegroundColor DarkGray
-    Write-Host "    Emby:     " -ForegroundColor Gray -NoNewline
-    Write-Host "netsh advfirewall firewall add rule name=`"Emby`" dir=in action=allow protocol=tcp localport=8920" -ForegroundColor DarkGray
+    Write-Host "    Plex: " -ForegroundColor Gray -NoNewline
+    Write-Host "netsh advfirewall firewall add rule name=`"Plex`" dir=in action=allow protocol=tcp localport=32400" -ForegroundColor DarkGray
 
     Press-Enter
 
@@ -874,10 +981,18 @@ browser. It's completely free and open-source."
     Write-Host "  -----------------------------------------" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  Want to access your media outside your home (hotel, work, etc.)?" -ForegroundColor White
-    Write-Host "  Use a secure mesh network - NO port forwarding needed!" -ForegroundColor Gray
+    Write-Host "  Use Plex's built-in Remote Access, or a secure mesh network (Tailscale)." -ForegroundColor Gray
     Write-Host ""
     Write-Host "  " -NoNewline
-    Write-Host " RECOMMENDED: Tailscale (Free) " -BackgroundColor DarkBlue -ForegroundColor White
+    Write-Host " OPTION A: Plex Remote Access (built in) " -BackgroundColor DarkGreen -ForegroundColor White
+    Write-Host ""
+    Write-Host "    1. In Plex go to: Settings > Remote Access > Enable" -ForegroundColor White
+    Write-Host "    2. Needs port " -ForegroundColor White -NoNewline
+    Write-Host "32400" -ForegroundColor Cyan -NoNewline
+    Write-Host " forwarded on your router to this computer" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  " -NoNewline
+    Write-Host " OPTION B: Tailscale (Free, no port forwarding) " -BackgroundColor DarkBlue -ForegroundColor White
     Write-Host ""
     Write-Host "  On this PC:" -ForegroundColor Yellow
     Write-Host "    1. Download Tailscale: " -ForegroundColor White -NoNewline
@@ -887,9 +1002,9 @@ browser. It's completely free and open-source."
     Write-Host ""
     Write-Host "  On your phone/laptop:" -ForegroundColor Yellow
     Write-Host "    1. Install Tailscale app and sign in with same account" -ForegroundColor White
-    Write-Host "    2. Open Jellyfin/Emby app and connect to:" -ForegroundColor White
+    Write-Host "    2. In the Plex app or a browser, open:" -ForegroundColor White
     Write-Host "       " -ForegroundColor White -NoNewline
-    Write-Host "http://100.x.x.x:8096" -ForegroundColor Cyan -NoNewline
+    Write-Host "http://100.x.x.x:32400/web" -ForegroundColor Cyan -NoNewline
     Write-Host " (use your actual Tailscale IP)" -ForegroundColor Gray
     Write-Host ""
     Write-Host "  " -NoNewline
@@ -897,6 +1012,8 @@ browser. It's completely free and open-source."
     Write-Host ""
     Write-Host "  Tailscale creates an encrypted tunnel directly between your devices." -ForegroundColor Gray
     Write-Host "  Nothing is exposed to the internet - no hackers can find your server!" -ForegroundColor Gray
+    Write-Host "  Plex Remote Access does open port 32400 to the internet. Plex handles" -ForegroundColor Gray
+    Write-Host "  sign-in and encryption, but Tailscale is the more private option." -ForegroundColor Gray
 
     Press-Enter
 
@@ -912,7 +1029,7 @@ browser. It's completely free and open-source."
     Write-Host "    Prowlarr:     http://localhost:8181" -ForegroundColor White
     Write-Host "    Sonarr:       http://localhost:8989" -ForegroundColor White
     Write-Host "    Radarr:       http://localhost:7878" -ForegroundColor White
-    Write-Host "    Jellyfin:     http://localhost:8096" -ForegroundColor Cyan -NoNewline
+    Write-Host "    Plex:         http://localhost:32400/web" -ForegroundColor Cyan -NoNewline
     Write-Host " (Media Server)" -ForegroundColor Gray
     # Show optional services if they were enabled
     $sabnzbdRunning = docker ps --format '{{.Names}}' 2>$null | Select-String '^sabnzbd$'
@@ -1208,7 +1325,7 @@ function Setup-Lidarr {
     Write-Host ""
     Write-Host "  Lidarr automatically finds, downloads, and organizes music." -ForegroundColor White
     Write-Host "  It works just like Sonarr/Radarr but for music albums and artists." -ForegroundColor White
-    Write-Host "  Your music will be available in Jellyfin for streaming!" -ForegroundColor White
+    Write-Host "  Your music will be available in Plex for streaming!" -ForegroundColor White
     Write-Host ""
 
     if (-not (Ask-YesNo "Would you like to enable music management (Lidarr)?")) {
@@ -1364,7 +1481,7 @@ function Main {
         Write-Host ""
         Write-Host "  Common fixes:" -ForegroundColor Yellow
         Write-Host "    1. Make sure Docker Desktop is running and has finished starting" -ForegroundColor White
-        Write-Host "    2. Check no other program is using ports 8080, 8181, 8989, 7878 or 8096" -ForegroundColor White
+        Write-Host "    2. Check no other program is using ports 8080, 8181, 8989, 7878 or 32400" -ForegroundColor White
         Write-Host "    3. View recent logs from the PrivacyServer folder:" -ForegroundColor White
         Write-Host "       docker compose logs --tail 50" -ForegroundColor Cyan
         Write-Host ""
