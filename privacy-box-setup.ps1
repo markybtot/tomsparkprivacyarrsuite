@@ -218,13 +218,247 @@ function Show-ArrOverview {
     Press-Enter
 }
 
-# --- Pre-Flight Checks ---
+# --- Pre-Flight Checks (Docker) ---
+$script:DockerJustInstalled = $false
+$script:RestartNeeded = $false
+
+function Update-SessionPath {
+    # Pick up PATH changes made by installers since this window opened
+    $parts = @()
+    foreach ($scope in @('Machine', 'User')) {
+        $value = [Environment]::GetEnvironmentVariable('Path', $scope)
+        if ($value) { $parts += $value -split ';' }
+    }
+    if ($env:Path) { $parts += $env:Path -split ';' }
+
+    $dockerBin = Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin'
+    if (Test-Path (Join-Path $dockerBin 'docker.exe')) {
+        $parts = @($dockerBin) + $parts
+    }
+
+    $seen = @{}
+    $clean = foreach ($p in $parts) {
+        if ([string]::IsNullOrWhiteSpace($p)) { continue }
+        $key = $p.TrimEnd('\').ToLowerInvariant()
+        if (-not $seen.ContainsKey($key)) {
+            $seen[$key] = $true
+            $p
+        }
+    }
+    $env:Path = ($clean -join ';')
+}
+
+function Test-DockerCli {
+    Update-SessionPath
+    return [bool](Get-Command docker -ErrorAction SilentlyContinue)
+}
+
+function Test-DockerEngine {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+    try {
+        & docker info *> $null
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Show-RestartNeeded {
+    Write-Host ""
+    Write-Host "  " -NoNewline
+    Write-Host " RESTART NEEDED " -BackgroundColor DarkBlue -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Windows needs a restart to finish setting up Docker." -ForegroundColor White
+    Write-Host ""
+    Write-Host "  Restart your PC, then double-click " -ForegroundColor Yellow -NoNewline
+    Write-Host "Setup-PrivacyBox.bat" -ForegroundColor Cyan -NoNewline
+    Write-Host " again." -ForegroundColor Yellow
+    Write-Host "  Setup will carry on from where it left off." -ForegroundColor Gray
+    Press-Enter
+    exit 0
+}
+
+function Test-WslInstalled {
+    $wsl = Get-Command wsl.exe -ErrorAction SilentlyContinue
+    if (-not $wsl) {
+        return $false
+    }
+
+    # wsl.exe writes UTF-16 text; set the console encoding so it doesn't garble, then rely on exit codes
+    $oldEncoding = $null
+    try { $oldEncoding = [Console]::OutputEncoding; [Console]::OutputEncoding = [System.Text.Encoding]::Unicode } catch { }
+    try {
+        & wsl.exe --status *> $null
+        if ($LASTEXITCODE -eq 0) { return $true }
+        & wsl.exe --version *> $null
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($oldEncoding) { try { [Console]::OutputEncoding = $oldEncoding } catch { } }
+    }
+}
+
+function Install-Wsl {
+    Write-Info "Checking for WSL 2 (Windows Subsystem for Linux)..."
+    if (Test-WslInstalled) {
+        Write-Success "WSL is already installed"
+        return
+    }
+
+    if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+        Write-Warning-Custom "This version of Windows can't install WSL automatically. Docker Desktop will try to set it up."
+        return
+    }
+
+    Write-Info "Installing WSL 2. Click 'Yes' if Windows asks for permission."
+    try {
+        $proc = Start-Process -FilePath "wsl.exe" -ArgumentList '--install', '--no-distribution' -Verb RunAs -Wait -PassThru
+        if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) {
+            Write-Success "WSL 2 installed (a restart is usually needed to finish)"
+            $script:RestartNeeded = $true
+        } else {
+            Write-Warning-Custom "WSL install returned code $($proc.ExitCode). Docker Desktop will try to set it up."
+        }
+    }
+    catch {
+        Write-Warning-Custom "WSL install was cancelled or failed. Docker Desktop will try to set it up."
+    }
+}
+
+function Install-DockerDesktopDirect {
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'amd64' }
+    $url = "https://desktop.docker.com/win/main/$arch/Docker%20Desktop%20Installer.exe"
+    $exe = Join-Path $env:TEMP "Docker Desktop Installer.exe"
+
+    Write-Info "Downloading Docker Desktop ($arch). This is a large download, please wait..."
+    $oldProgress = $ProgressPreference
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing
+    }
+    catch {
+        Write-Error-Custom "Download failed: $($_.Exception.Message)"
+        return $false
+    }
+    finally {
+        $ProgressPreference = $oldProgress
+    }
+
+    Write-Info "Running the Docker Desktop installer. Click 'Yes' if Windows asks for permission."
+    try {
+        $proc = Start-Process -FilePath $exe -ArgumentList 'install', '--quiet', '--accept-license' -Verb RunAs -Wait -PassThru
+    }
+    catch {
+        Write-Error-Custom "The installer was cancelled or could not start."
+        return $false
+    }
+    finally {
+        Remove-Item $exe -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($proc.ExitCode -eq 3010) {
+        $script:RestartNeeded = $true
+        return $true
+    }
+    if ($proc.ExitCode -ne 0) {
+        Write-Error-Custom "Docker Desktop installer failed (code $($proc.ExitCode))."
+        return $false
+    }
+    return $true
+}
+
+function Add-UserToDockerGroup {
+    try {
+        $members = & net.exe localgroup docker-users 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return
+        }
+        $pattern = '(^|\\)' + [regex]::Escape($env:USERNAME) + '\s*$'
+        if ($members | Where-Object { $_ -match $pattern }) {
+            return
+        }
+        Write-Info "Adding $env:USERNAME to the 'docker-users' group. Click 'Yes' if Windows asks for permission."
+        Start-Process -FilePath "net.exe" -ArgumentList 'localgroup', 'docker-users', "`"$env:USERNAME`"", '/add' -Verb RunAs -Wait -WindowStyle Hidden | Out-Null
+    }
+    catch {
+        # Not fatal; Docker Desktop normally sorts this out itself
+    }
+}
+
+function Install-DockerDesktop {
+    Write-Banner
+    Write-Host "  INSTALLING DOCKER DESKTOP" -ForegroundColor Magenta
+    Write-Host "  -------------------------" -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Info "Docker Desktop is free for personal use and small businesses."
+    Write-Host ""
+
+    Install-Wsl
+    Write-Host ""
+
+    $installed = $false
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Info "Installing Docker Desktop with winget. Click 'Yes' if Windows asks for permission."
+        Write-Host ""
+        & winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements
+        $wingetCode = $LASTEXITCODE
+        Write-Host ""
+        if ($wingetCode -eq 0 -or (Test-Path (Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'))) {
+            $installed = $true
+        } else {
+            Write-Warning-Custom "winget install didn't work (code $wingetCode). Trying a direct download instead."
+        }
+    } else {
+        Write-Info "winget isn't available, downloading the installer directly."
+    }
+
+    if (-not $installed) {
+        $installed = Install-DockerDesktopDirect
+    }
+
+    if (-not $installed) {
+        Write-Host ""
+        Write-Host "  Please install Docker Desktop manually:" -ForegroundColor White
+        Write-Host "  https://www.docker.com/products/docker-desktop/" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Warning-Custom "During installation, make sure 'Use WSL 2' is CHECKED!"
+        return $false
+    }
+
+    Write-Success "Docker Desktop installed"
+    $script:DockerJustInstalled = $true
+    Add-UserToDockerGroup
+    Update-SessionPath
+
+    if ($script:RestartNeeded) {
+        Show-RestartNeeded
+    }
+    return $true
+}
+
 function Test-DockerInstalled {
     Write-Step "1" "Checking if Docker Desktop is installed..."
 
-    $dockerPath = Get-Command docker -ErrorAction SilentlyContinue
-    if (-not $dockerPath) {
-        Write-Error-Custom "Docker is NOT installed!"
+    if (Test-DockerCli) {
+        Write-Success "Docker is installed"
+        return $true
+    }
+
+    Write-Warning-Custom "Docker Desktop is not installed."
+    Write-Host ""
+    Write-Host "  Privacy Box runs all its apps inside Docker, so it's needed before setup can continue." -ForegroundColor White
+    Write-Host "  This wizard can install it for you (and WSL 2, which Docker uses)." -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  Install Docker Desktop now? (Y/n): " -ForegroundColor Yellow -NoNewline
+    $answer = Read-Host
+    if ($answer -match '^[Nn]') {
         Write-Host ""
         Write-Host "  Please install Docker Desktop first:" -ForegroundColor White
         Write-Host "  https://www.docker.com/products/docker-desktop/" -ForegroundColor Cyan
@@ -232,6 +466,17 @@ function Test-DockerInstalled {
         Write-Warning-Custom "During installation, make sure 'Use WSL 2' is CHECKED!"
         return $false
     }
+
+    if (-not (Install-DockerDesktop)) {
+        return $false
+    }
+
+    if (-not (Test-DockerCli)) {
+        # Installed but the docker command isn't visible yet; a restart sorts this out
+        Show-RestartNeeded
+    }
+
+    Write-Host ""
     Write-Success "Docker is installed"
     return $true
 }
@@ -239,21 +484,46 @@ function Test-DockerInstalled {
 function Test-DockerRunning {
     Write-Step "2" "Checking if Docker is running..."
 
-    try {
-        $result = docker info 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            throw "Docker not running"
-        }
+    if (Test-DockerEngine) {
         Write-Success "Docker is running"
         return $true
     }
-    catch {
-        Write-Error-Custom "Docker is NOT running!"
+
+    $desktopExe = Join-Path $env:ProgramFiles 'Docker\Docker\Docker Desktop.exe'
+    if (Test-Path $desktopExe) {
+        Write-Info "Starting Docker Desktop. The first start can take a few minutes..."
+        Start-Process -FilePath $desktopExe
+
+        $maxWait = 180
+        $waited = 0
+        while ($waited -lt $maxWait) {
+            Start-Sleep -Seconds 3
+            $waited += 3
+            Update-SessionPath
+            if (Test-DockerEngine) {
+                Write-Host ""
+                Write-Success "Docker is running"
+                return $true
+            }
+            Write-Host "." -NoNewline -ForegroundColor Yellow
+        }
         Write-Host ""
-        Write-Host "  Please start Docker Desktop and wait for the whale icon" -ForegroundColor White
-        Write-Host "  in the system tray to turn GREEN before continuing." -ForegroundColor White
-        return $false
     }
+
+    if ($script:DockerJustInstalled) {
+        Show-RestartNeeded
+    }
+
+    Write-Error-Custom "Docker didn't start in time."
+    Write-Host ""
+    Write-Host "  1. Open " -ForegroundColor White -NoNewline
+    Write-Host "Docker Desktop" -ForegroundColor Cyan -NoNewline
+    Write-Host " from the Start menu" -ForegroundColor White
+    Write-Host "  2. Accept any first-run prompts" -ForegroundColor White
+    Write-Host "  3. Wait until it shows " -ForegroundColor White -NoNewline
+    Write-Host "Engine running" -ForegroundColor Green
+    Write-Host "  4. Run setup again (double-click Setup-PrivacyBox.bat)" -ForegroundColor White
+    return $false
 }
 
 function Get-Timezone {

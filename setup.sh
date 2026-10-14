@@ -173,40 +173,201 @@ show_arr_overview() {
 }
 
 # --- Pre-Flight Checks ---
-test_docker_installed() {
-    write_step "1" "Checking if Docker is installed..."
 
-    if ! command -v docker &> /dev/null; then
-        write_error "Docker is NOT installed!"
-        echo ""
-        echo -e "  ${WHITE}Please install Docker first:${NC}"
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            echo -e "  ${CYAN}https://www.docker.com/products/docker-desktop/${NC}"
-            echo -e "  ${WHITE}Download Docker Desktop for Mac${NC}"
-        else
-            echo -e "  ${CYAN}https://docs.docker.com/engine/install/${NC}"
-            echo -e "  ${WHITE}Or run: curl -fsSL https://get.docker.com | sh${NC}"
+# On Linux, if the user isn't in the docker group yet, run docker via sudo
+# for this session. Every docker call in this script goes through here.
+USE_SUDO_DOCKER=false
+docker() {
+    if [[ "$USE_SUDO_DOCKER" == "true" ]]; then
+        sudo docker "$@"
+    else
+        command docker "$@"
+    fi
+}
+
+ask_yes_no_default_yes() {
+    echo ""
+    echo -ne "  ${YELLOW}$1 (Y/n): ${NC}"
+    read -r response
+    [[ ! "$response" =~ ^[Nn] ]]
+}
+
+# Docker Desktop's CLI isn't always on PATH until it has been launched once
+add_docker_paths() {
+    local p
+    for p in /Applications/Docker.app/Contents/Resources/bin "$HOME/.docker/bin" /usr/local/bin /opt/homebrew/bin; do
+        if [[ -d "$p" && ":$PATH:" != *":$p:"* ]]; then
+            PATH="$PATH:$p"
         fi
+    done
+    export PATH
+}
+
+docker_installed() {
+    add_docker_paths
+    type -P docker &> /dev/null && return 0
+    [[ "$OSTYPE" == "darwin"* && -d /Applications/Docker.app ]] && return 0
+    return 1
+}
+
+docker_ok() {
+    type -P docker &> /dev/null || return 1
+    if command docker info &> /dev/null; then
+        USE_SUDO_DOCKER=false
+        return 0
+    fi
+    # Linux: daemon up but this user can't reach the socket yet
+    if [[ "$OSTYPE" != "darwin"* ]] && sudo docker info &> /dev/null; then
+        USE_SUDO_DOCKER=true
+        return 0
+    fi
+    return 1
+}
+
+install_docker_mac() {
+    local arch tmpdir dmg mnt rc
+    case "$(uname -m)" in
+        arm64) arch="arm64" ;;
+        *)     arch="amd64" ;;
+    esac
+    tmpdir="$(mktemp -d)"
+    dmg="$tmpdir/Docker.dmg"
+    mnt="$tmpdir/mnt"
+
+    write_info "Downloading Docker Desktop for Mac (${arch}). This is a large download..."
+    if ! curl -fL --progress-bar "https://desktop.docker.com/mac/main/${arch}/Docker.dmg" -o "$dmg"; then
+        write_error "Download failed. Check your internet connection and try again."
+        rm -rf "$tmpdir"
         return 1
     fi
-    write_success "Docker is installed"
+
+    echo ""
+    write_info "Installing Docker Desktop. Enter your Mac login password if asked."
+    mkdir -p "$mnt"
+    if ! sudo hdiutil attach "$dmg" -nobrowse -quiet -mountpoint "$mnt"; then
+        write_error "Couldn't open the Docker installer."
+        rm -rf "$tmpdir"
+        return 1
+    fi
+    sudo "$mnt/Docker.app/Contents/MacOS/install" --accept-license --user="$USER"
+    rc=$?
+    sudo hdiutil detach "$mnt" -quiet 2>/dev/null || sudo hdiutil detach "$mnt" -force -quiet 2>/dev/null
+    rm -rf "$tmpdir"
+    return $rc
+}
+
+install_docker_linux() {
+    local script rc
+    script="$(mktemp)"
+    write_info "Installing Docker Engine with Docker's official script (get.docker.com)."
+    write_info "Enter your password if asked."
+    if ! curl -fsSL https://get.docker.com -o "$script"; then
+        write_error "Download failed. Check your internet connection and try again."
+        rm -f "$script"
+        return 1
+    fi
+    sudo sh "$script"
+    rc=$?
+    rm -f "$script"
+    [[ $rc -ne 0 ]] && return $rc
+    sudo usermod -aG docker "$USER" 2>/dev/null || true
     return 0
 }
 
-test_docker_running() {
-    write_step "2" "Checking if Docker is running..."
+start_docker_service() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        open -g -a Docker 2>/dev/null || open -a Docker 2>/dev/null
+    elif command -v systemctl &> /dev/null && systemctl list-unit-files docker.service &> /dev/null; then
+        sudo systemctl enable --now docker &> /dev/null
+    else
+        sudo service docker start &> /dev/null
+    fi
+}
 
-    if ! docker info &> /dev/null; then
-        write_error "Docker is NOT running!"
+wait_for_docker() {
+    local timeout="$1" waited=0
+    while [[ $waited -lt $timeout ]]; do
+        add_docker_paths
+        if docker_ok; then
+            echo ""
+            return 0
+        fi
+        sleep 3
+        waited=$((waited + 3))
+        echo -ne "${YELLOW}.${NC}"
+    done
+    echo ""
+    return 1
+}
+
+ensure_docker() {
+    write_step "1" "Checking if Docker is installed..."
+
+    if docker_installed; then
+        write_success "Docker is installed"
+    else
+        write_warning "Docker is not installed. The media server runs inside Docker."
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            echo -e "  ${GRAY}This will download and install Docker Desktop (free for personal use and small businesses).${NC}"
+        else
+            echo -e "  ${GRAY}This will install Docker Engine using Docker's official install script.${NC}"
+        fi
+
+        if ! ask_yes_no_default_yes "Install Docker now?"; then
+            echo ""
+            echo -e "  ${WHITE}Install Docker yourself, then run this script again:${NC}"
+            if [[ "$OSTYPE" == "darwin"* ]]; then
+                echo -e "  ${CYAN}https://www.docker.com/products/docker-desktop/${NC}"
+            else
+                echo -e "  ${CYAN}curl -fsSL https://get.docker.com | sh${NC}"
+            fi
+            return 1
+        fi
+
         echo ""
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            echo -e "  ${WHITE}Please start Docker Desktop and wait for it to be ready.${NC}"
+            install_docker_mac || { write_error "Docker installation failed."; return 1; }
         else
-            echo -e "  ${WHITE}Please start Docker: ${CYAN}sudo systemctl start docker${NC}"
+            install_docker_linux || { write_error "Docker installation failed."; return 1; }
+        fi
+        add_docker_paths
+        write_success "Docker installed"
+    fi
+
+    write_step "2" "Checking if Docker is running..."
+
+    if docker_ok; then
+        write_success "Docker is running"
+        return 0
+    fi
+
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        write_info "Starting Docker Desktop (the first start can take a couple of minutes)..."
+    else
+        write_info "Starting Docker..."
+    fi
+    start_docker_service
+
+    if ! wait_for_docker 240; then
+        write_error "Docker didn't start in time."
+        echo ""
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            echo -e "  ${WHITE}Open Docker from your Applications folder, accept any first-run prompts,${NC}"
+            echo -e "  ${WHITE}wait until the whale icon in the menu bar stops animating, then run this again.${NC}"
+        else
+            echo -e "  ${WHITE}Check Docker's status with: ${CYAN}sudo systemctl status docker${NC}"
+            echo -e "  ${WHITE}Then run this script again.${NC}"
         fi
         return 1
     fi
+
     write_success "Docker is running"
+    if [[ "$USE_SUDO_DOCKER" == "true" ]]; then
+        write_info "Using sudo for Docker this time. Log out and back in so 'docker' works without sudo."
+    fi
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        write_info "Docker Desktop starts when you log in, so the media server comes back after a restart."
+    fi
     return 0
 }
 
@@ -430,7 +591,11 @@ hand it the files to fetch."
     fi
     echo -e "    ${WHITE}2. Paste this command:${NC}"
     echo ""
-    echo -e "       ${CYAN}docker logs qbittorrent 2>&1 | grep password${NC}"
+    if [[ "$USE_SUDO_DOCKER" == "true" ]]; then
+        echo -e "       ${CYAN}sudo docker logs qbittorrent 2>&1 | grep password${NC}"
+    else
+        echo -e "       ${CYAN}docker logs qbittorrent 2>&1 | grep password${NC}"
+    fi
     echo ""
     echo -e "    ${WHITE}3. Press Enter - your password will appear${NC}"
     echo -e "    ${WHITE}4. Copy the password and use it to log in above${NC}"
@@ -1018,13 +1183,8 @@ setup_lidarr() {
 main() {
     write_banner
 
-    # Pre-flight checks
-    if ! test_docker_installed; then
-        press_enter
-        exit 1
-    fi
-
-    if ! test_docker_running; then
+    # Pre-flight checks (installs and starts Docker if needed)
+    if ! ensure_docker; then
         press_enter
         exit 1
     fi

@@ -64,6 +64,7 @@ chmod +x setup.sh && ./setup.sh
 ## Features
 
 - **One-click setup** - just your timezone and a Plex claim token
+- **Installs Docker for you** - if Docker is missing, the wizard installs and starts it (Docker Desktop on Mac/Windows, Docker Engine on Linux)
 - **Cross-platform** - Windows, macOS, and Linux
 - **Plex included** - stream your media to any device
 - **Discord notifications** - optional Notifiarr integration
